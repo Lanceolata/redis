@@ -33,6 +33,11 @@
 #include "adlist.h"
 #include "zmalloc.h"
 
+/**
+ * 创建链表
+ * 
+ * @retrun list
+ */
 /* Create a new list. The created list can be freed with
  * listRelease(), but private value of every node need to be freed
  * by the user before to call listRelease(), or by setting a free method using
@@ -53,6 +58,11 @@ list *listCreate(void)
     return list;
 }
 
+/**
+ * 清空链表
+ * 
+ * @param list 链表
+ */
 /* Remove all the elements from the list without destroying the list itself. */
 void listEmpty(list *list)
 {
@@ -71,6 +81,11 @@ void listEmpty(list *list)
     list->len = 0;
 }
 
+/**
+ * 释放链表
+ * 
+ * @param list 链表
+ */
 /* Free the whole list.
  *
  * This function can't fail. */
@@ -80,6 +95,13 @@ void listRelease(list *list)
     zfree(list);
 }
 
+/**
+ * 链表头插入
+ * 
+ * @param list 链表
+ * @param value 插入值
+ * @return 链表
+ */
 /* Add a new node to the list, to head, containing the specified 'value'
  * pointer as value.
  *
@@ -106,6 +128,13 @@ list *listAddNodeHead(list *list, void *value)
     return list;
 }
 
+/**
+ * 链表尾插入
+ * 
+ * @param list 链表
+ * @param value 插入值
+ * @return 链表
+ */
 /* Add a new node to the list, to tail, containing the specified 'value'
  * pointer as value.
  *
@@ -132,6 +161,16 @@ list *listAddNodeTail(list *list, void *value)
     return list;
 }
 
+/**
+ * 链表插入
+ * 在old_node节点前后插入
+ * 
+ * @param list 链表
+ * @param old_node 节点
+ * @param value 插入值
+ * @param after 0 节点前 1 节点后
+ * @return 链表
+ */
 list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
     listNode *node;
 
@@ -161,6 +200,12 @@ list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
     return list;
 }
 
+/**
+ * 删除节点
+ * 
+ * @param list 链表
+ * @param node 删除节点
+ */
 /* Remove the specified node from the specified list.
  * It's up to the caller to free the private value of the node.
  *
@@ -180,6 +225,13 @@ void listDelNode(list *list, listNode *node)
     list->len--;
 }
 
+/**
+ * 创建迭代器
+ * 
+ * @param list 链表
+ * @param direction 方向 0 头->尾 1 尾->头
+ * @return 迭代器
+ */
 /* Returns a list iterator 'iter'. After the initialization every
  * call to listNext() will return the next element of the list.
  *
@@ -197,22 +249,45 @@ listIter *listGetIterator(list *list, int direction)
     return iter;
 }
 
+/**
+ * 释放迭代器
+ * 
+ * @param iter 迭代器
+ */
 /* Release the iterator memory */
 void listReleaseIterator(listIter *iter) {
     zfree(iter);
 }
 
+/**
+ * 重置迭代器，从头节点开始
+ * 
+ * @param list 链表
+ * @param li 迭代器
+ */
 /* Create an iterator in the list private iterator structure */
 void listRewind(list *list, listIter *li) {
     li->next = list->head;
     li->direction = AL_START_HEAD;
 }
 
+/**
+ * 重置迭代器，从尾节点开始
+ * 
+ * @param list 链表
+ * @param li 迭代器
+ */
 void listRewindTail(list *list, listIter *li) {
     li->next = list->tail;
     li->direction = AL_START_TAIL;
 }
 
+/**
+ * 迭代器下一个节点
+ * 
+ * @param iter 迭代器
+ * @return 节点
+ */
 /* Return the next element of an iterator.
  * It's valid to remove the currently returned element using
  * listDelNode(), but not to remove other elements.
@@ -240,6 +315,12 @@ listNode *listNext(listIter *iter)
     return current;
 }
 
+/**
+ * 复制链表
+ * 
+ * @param orig 链表
+ * @return 节点
+ */
 /* Duplicate the whole list. On out of memory NULL is returned.
  * On success a copy of the original list is returned.
  *
@@ -279,6 +360,13 @@ list *listDup(list *orig)
     return copy;
 }
 
+/**
+ * 搜索链表
+ * 
+ * @param list 链表
+ * @param key 查找值
+ * @return 节点
+ */
 /* Search the list for a node matching a given key.
  * The match is performed using the 'match' method
  * set with listSetMatchMethod(). If no 'match' method
@@ -308,6 +396,13 @@ listNode *listSearchKey(list *list, void *key)
     return NULL;
 }
 
+/**
+ * 获得索引指定的节点
+ * 
+ * @param list 链表
+ * @param index 索引
+ * @return 节点
+ */
 /* Return the element at the specified zero-based index
  * where 0 is the head, 1 is the element next to head
  * and so on. Negative integers are used in order to count
@@ -327,6 +422,11 @@ listNode *listIndex(list *list, long index) {
     return n;
 }
 
+/**
+ * 旋转链表，将尾节点插入头节点前
+ * 
+ * @param list 链表
+ */
 /* Rotate the list removing the tail node and inserting it to the head. */
 void listRotateTailToHead(list *list) {
     if (listLength(list) <= 1) return;
@@ -342,6 +442,11 @@ void listRotateTailToHead(list *list) {
     list->head = tail;
 }
 
+/**
+ * 旋转链表，将头节点插入尾节点后
+ * 
+ * @param list 链表
+ */
 /* Rotate the list removing the head node and inserting it to the tail. */
 void listRotateHeadToTail(list *list) {
     if (listLength(list) <= 1) return;
@@ -357,6 +462,12 @@ void listRotateHeadToTail(list *list) {
     list->tail = head;
 }
 
+/**
+ * 合并两个链表
+ * 
+ * @param l 链表
+ * @param o 链表
+ */
 /* Add all the elements of the list 'o' at the end of the
  * list 'l'. The list 'other' remains empty but otherwise valid. */
 void listJoin(list *l, list *o) {

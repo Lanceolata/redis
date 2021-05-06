@@ -2823,11 +2823,16 @@ void resetServerStats(void) {
     server.aof_delayed_fsync = 0;
 }
 
+/**
+ * 设置线程允许退出
+ */
 /* Make the thread killable at any time, so that kill threads functions
  * can work reliably (default cancelability type is PTHREAD_CANCEL_DEFERRED).
  * Needed for pthread_cancel used by the fast memory test used by the crash report. */
 void makeThreadKillable(void) {
+    // 线程线程退出状态
     pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+    // 设置线程退出为 异步退出(非立即退出)
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 }
 

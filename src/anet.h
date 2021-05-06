@@ -33,8 +33,11 @@
 
 #include <sys/types.h>
 
+// 成功
 #define ANET_OK 0
+// 错误
 #define ANET_ERR -1
+// 错信信息长度
 #define ANET_ERR_LEN 256
 
 /* Flags used with certain functions. */
