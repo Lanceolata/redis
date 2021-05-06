@@ -27,6 +27,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+/**
+ * 后台异步任务
+ */
+
 #ifndef __BIO_H
 #define __BIO_H
 
