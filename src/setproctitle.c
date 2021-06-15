@@ -178,6 +178,16 @@ static int spt_copyargs(int argc, char *argv[]) {
 	return 0;
 } /* spt_copyargs() */
 
+/**
+ * 修改进程名
+ * 
+ * Linux进程名称是通过命令行参数argv[0]来标识。
+ * Linux环境变量参数信息，表示进程执行需要的所有环境变量信息。通过全局变量Char **environ;可以访问环境变量。
+ * 命令行参数argv和环境变量信息environ是在一块连续的内存中表示的，并且environ紧跟在argv后面。
+ * 
+ * @param argc 命令行参数个数
+ * @param argv 命令行参数
+ */
 /* Initialize and populate SPT to allow a future setproctitle()
  * call.
  *
@@ -189,17 +199,22 @@ static int spt_copyargs(int argc, char *argv[]) {
  * strings, a deep copy of these two arrays is performed.
  */
 void spt_init(int argc, char *argv[]) {
+	// 环境变量指针
         char **envp = environ;
 	char *base, *end, *nul, *tmp;
 	int i, error, envc;
 
+	// base指向argv[0]的指针
 	if (!(base = argv[0]))
 		return;
-
+	// nul指向argv[0]的末尾\0
 	/* We start with end pointing at the end of argv[0] */
 	nul = &base[strlen(base)];
 	end = nul + 1;
 
+	// 尽可能向后扩展
+	// i < argc 表示 命令行参数
+	// i >= argc && argv[i] 非命令行参数 但有指针 
 	/* Attempt to extend end as far as we can, while making sure
 	 * that the range between base and end is only allocated to
 	 * argv, or anything that immediately follows argv (presumably

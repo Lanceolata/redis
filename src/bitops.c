@@ -34,6 +34,14 @@
  * Helpers and low level bit functions.
  * -------------------------------------------------------------------------- */
 
+/**
+ * 计算长度为count的二进制数组中bit为1的数量
+ * 长度最大为512MB
+ * 
+ * @param s byte数组
+ * @param count byte数组长度
+ * @return bit为1的个数
+ */
 /* Count number of bits set in the binary array pointed by 's' and long
  * 'count' bytes. The implementation of this function is required to
  * work with an input string length up to 512 MB. */
@@ -41,17 +49,23 @@ size_t redisPopcount(void *s, long count) {
     size_t bits = 0;
     unsigned char *p = s;
     uint32_t *p4;
+    // 1byte中，数字对应的bit为1的数量
     static const unsigned char bitsinbyte[256] = {0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,4,5,5,6,5,6,6,7,5,6,6,7,6,7,7,8};
 
+    // 计算未32位对齐的初始字节 1个byte 8bit
     /* Count initial bytes not aligned to 32 bit. */
     while((unsigned long)p & 3 && count) {
+        // 指针移动1位
         bits += bitsinbyte[*p++];
+        // bit
         count--;
     }
 
+    // 每次计算28bytes
     /* Count bits 28 bytes at a time */
     p4 = (uint32_t*)p;
     while(count>=28) {
+        // 4 byte
         uint32_t aux1, aux2, aux3, aux4, aux5, aux6, aux7;
 
         aux1 = *p4++;
@@ -85,12 +99,20 @@ size_t redisPopcount(void *s, long count) {
                     ((aux6 + (aux6 >> 4)) & 0x0F0F0F0F) +
                     ((aux7 + (aux7 >> 4)) & 0x0F0F0F0F))* 0x01010101) >> 24;
     }
+    // 计算剩余字节
     /* Count the remaining bytes. */
     p = (unsigned char*)p4;
     while(count--) bits += bitsinbyte[*p++];
     return bits;
 }
 
+/**
+ * 返回第一个为0或1的位置
+ * 
+ * @param s byte数组
+ * @param count byte数组长度
+ * @return 位置
+ */
 /* Return the position of the first bit set to one (if 'bit' is 1) or
  * zero (if 'bit' is 0) in the bitmap starting at 's' and long 'count' bytes.
  *
