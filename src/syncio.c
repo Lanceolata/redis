@@ -42,6 +42,16 @@
 
 #define SYNCIO__RESOLUTION 10 /* Resolution in milliseconds */
 
+/**
+ * 同步写
+ * 
+ * @param fd 文件描述符
+ * @param ptr 数据
+ * @param size 数据长度
+ * @param timeout 超时时间
+ * 
+ * @return 写数据长度 失败 -1
+ */
 /* Write the specified payload to 'fd'. If writing the whole payload will be
  * done within 'timeout' milliseconds the operation succeeds and 'size' is
  * returned. Otherwise the operation fails, -1 is returned, and an unspecified
@@ -52,10 +62,12 @@ ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout) {
     long long remaining = timeout;
 
     while(1) {
+        // 等待时间最少10ms
         long long wait = (remaining > SYNCIO__RESOLUTION) ?
                           remaining : SYNCIO__RESOLUTION;
         long long elapsed;
 
+        // 写数据
         /* Optimistically try to write before checking if the file descriptor
          * is actually writable. At worst we get EAGAIN. */
         nwritten = write(fd,ptr,size);
@@ -67,9 +79,11 @@ ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout) {
         }
         if (size == 0) return ret;
 
+        // 等待fd可写
         /* Wait */
         aeWait(fd,AE_WRITABLE,wait);
         elapsed = mstime() - start;
+        // 超时
         if (elapsed >= timeout) {
             errno = ETIMEDOUT;
             return -1;
@@ -78,6 +92,16 @@ ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout) {
     }
 }
 
+/**
+ * 同步读
+ * 
+ * @param fd 文件描述符
+ * @param ptr 数据
+ * @param size 数据长度
+ * @param timeout 超时时间
+ * 
+ * @return 读数据长度 失败 -1
+ */
 /* Read the specified amount of bytes from 'fd'. If all the bytes are read
  * within 'timeout' milliseconds the operation succeed and 'size' is returned.
  * Otherwise the operation fails, -1 is returned, and an unspecified amount of
@@ -93,6 +117,7 @@ ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout) {
                           remaining : SYNCIO__RESOLUTION;
         long long elapsed;
 
+        // 读数据
         /* Optimistically try to read before checking if the file descriptor
          * is actually readable. At worst we get EAGAIN. */
         nread = read(fd,ptr,size);
@@ -106,9 +131,11 @@ ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout) {
         }
         if (size == 0) return totread;
 
+        // 等待fd可读
         /* Wait */
         aeWait(fd,AE_READABLE,wait);
         elapsed = mstime() - start;
+        // 超时
         if (elapsed >= timeout) {
             errno = ETIMEDOUT;
             return -1;
@@ -117,6 +144,16 @@ ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout) {
     }
 }
 
+/**
+ * 同步按行读取数据
+ * 
+ * @param fd 文件描述符
+ * @param ptr 数据
+ * @param size 数据长度
+ * @param timeout 超时时间
+ * 
+ * @return 读数据长度 失败 -1
+ */
 /* Read a line making sure that every char will not require more than 'timeout'
  * milliseconds to be read.
  *
@@ -125,6 +162,7 @@ ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout) {
 ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout) {
     ssize_t nread = 0;
 
+    // 末尾\0
     size--;
     while(size) {
         char c;
@@ -132,6 +170,7 @@ ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout) {
         if (syncRead(fd,&c,1,timeout) == -1) return -1;
         if (c == '\n') {
             *ptr = '\0';
+            // 处理\r\n
             if (nread && *(ptr-1) == '\r') *(ptr-1) = '\0';
             return nread;
         } else {

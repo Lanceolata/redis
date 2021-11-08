@@ -71,8 +71,12 @@ static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
 
 /* -------------------------- hash functions -------------------------------- */
 
+// 字典hash种子
 static uint8_t dict_hash_function_seed[16];
 
+/**
+ * 字典设置hash种子
+ */
 void dictSetHashFunctionSeed(uint8_t *seed) {
     memcpy(dict_hash_function_seed,seed,sizeof(dict_hash_function_seed));
 }
@@ -97,6 +101,9 @@ uint64_t dictGenCaseHashFunction(const unsigned char *buf, int len) {
 
 /* ----------------------------- API implementation ------------------------- */
 
+/**
+ * 重置hash表
+ */
 /* Reset a hash table already initialized with ht_init().
  * NOTE: This function should only be called by ht_destroy(). */
 static void _dictReset(dictht *ht)
@@ -107,20 +114,37 @@ static void _dictReset(dictht *ht)
     ht->used = 0;
 }
 
+/**
+ * 创建字典
+ * 
+ * @param type 字典类型
+ * @param privDataPtr 私有数据指针
+ * @return 字典
+ */
 /* Create a new hash table */
 dict *dictCreate(dictType *type,
         void *privDataPtr)
 {
+    // 分配内存
     dict *d = zmalloc(sizeof(*d));
-
+    // 初始化字典
     _dictInit(d,type,privDataPtr);
     return d;
 }
 
+/**
+ * 初始化字典
+ * 
+ * @param d 字典
+ * @param type 字典类型
+ * @param privDataPtr 私有数据指针
+ * @return DICT_OK(0)
+ */
 /* Initialize the hash table */
 int _dictInit(dict *d, dictType *type,
         void *privDataPtr)
 {
+    // 重置hash表
     _dictReset(&d->ht[0]);
     _dictReset(&d->ht[1]);
     d->type = type;
@@ -263,12 +287,21 @@ static void _dictRehashStep(dict *d) {
     if (d->iterators == 0) dictRehash(d,1);
 }
 
+/**
+ * 增加元素
+ * 
+ * @param d 字典
+ * @param key 键
+ * @param val 值
+ */
 /* Add an element to the target hash table */
 int dictAdd(dict *d, void *key, void *val)
 {
+    // 添加key
     dictEntry *entry = dictAddRaw(d,key,NULL);
 
     if (!entry) return DICT_ERR;
+    // 设置值
     dictSetVal(d, entry, val);
     return DICT_OK;
 }

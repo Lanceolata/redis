@@ -1307,6 +1307,10 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
     if (startbgsave) startBgsaveForReplication(mincapa);
 }
 
+/**
+ * 设置server.replid
+ * 随机16进制字符串 长度40
+ */
 /* Change the current instance replication ID with a new, random one.
  * This will prevent successful PSYNCs between this master and other
  * slaves, so the command should be called when something happens that
@@ -1316,6 +1320,10 @@ void changeReplicationId(void) {
     server.replid[CONFIG_RUN_ID_SIZE] = '\0';
 }
 
+/**
+ * 清空server.replid2
+ * 设置server.second_replid_offset = -1
+ */
 /* Clear (invalidate) the secondary replication ID. This happens, for
  * example, after a full resynchronization, when we start a new replication
  * history. */

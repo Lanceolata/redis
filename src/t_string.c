@@ -34,7 +34,15 @@
  * String Commands
  *----------------------------------------------------------------------------*/
 
+/**
+ * 检查字符串长度
+ * 
+ * @param c client
+ * @param size 长度
+ * @return C_OK C_ERR
+ */
 static int checkStringLength(client *c, long long size) {
+    // 非Master节点 && size > server.proto_max_bulk_len
     if (!(c->flags & CLIENT_MASTER) && size > server.proto_max_bulk_len) {
         addReplyError(c,"string exceeds maximum allowed size (proto-max-bulk-len)");
         return C_ERR;
@@ -65,34 +73,59 @@ static int checkStringLength(client *c, long long size) {
 #define OBJ_SET_PX (1<<3)          /* Set if time in ms in given */
 #define OBJ_SET_KEEPTTL (1<<4)     /* Set and keep the ttl */
 
+/**
+ * set命令
+ * 
+ * @param c client
+ * @param flags 命令标志位
+ * @param key key
+ * @param val val
+ * @param expire expire
+ * @param unit expire time unit
+ * @param ok_reply 成功返回
+ * @param abort_reply 异常返回
+ */
 void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
 
+    // 过期时间对象
     if (expire) {
+        // 解析 long long类型
         if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != C_OK)
             return;
+        // 无效过期时间
         if (milliseconds <= 0) {
             addReplyErrorFormat(c,"invalid expire time in %s",c->cmd->name);
             return;
         }
+        // 转为ms单位
         if (unit == UNIT_SECONDS) milliseconds *= 1000;
     }
 
+    // 查看key是否存在
     if ((flags & OBJ_SET_NX && lookupKeyWrite(c->db,key) != NULL) ||
         (flags & OBJ_SET_XX && lookupKeyWrite(c->db,key) == NULL))
     {
         addReply(c, abort_reply ? abort_reply : shared.null[c->resp]);
         return;
     }
+    // 设置kv
     genericSetKey(c,c->db,key,val,flags & OBJ_SET_KEEPTTL,1);
     server.dirty++;
+    // 设置过期时间
     if (expire) setExpire(c,c->db,key,mstime()+milliseconds);
+    // TODO
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
     if (expire) notifyKeyspaceEvent(NOTIFY_GENERIC,
         "expire",key,c->db->id);
     addReply(c, ok_reply ? ok_reply : shared.ok);
 }
 
+/**
+ * set命令
+ * 
+ * @param c client
+ */
 /* SET key value [NX] [XX] [KEEPTTL] [EX <seconds>] [PX <milliseconds>] */
 void setCommand(client *c) {
     int j;
@@ -146,28 +179,48 @@ void setCommand(client *c) {
     setGenericCommand(c,flags,c->argv[1],c->argv[2],expire,unit,NULL,NULL);
 }
 
+/**
+ * Set if key not exists
+ * 
+ * @param c client
+ */
 void setnxCommand(client *c) {
     c->argv[2] = tryObjectEncoding(c->argv[2]);
     setGenericCommand(c,OBJ_SET_NX,c->argv[1],c->argv[2],NULL,0,shared.cone,shared.czero);
 }
 
+/**
+ * Set if time in seconds is given
+ * 
+ * @param c client
+ */
 void setexCommand(client *c) {
     c->argv[3] = tryObjectEncoding(c->argv[3]);
     setGenericCommand(c,OBJ_SET_NO_FLAGS,c->argv[1],c->argv[3],c->argv[2],UNIT_SECONDS,NULL,NULL);
 }
 
+/**
+ * Set if time in ms in given
+ * 
+ * @param c client
+ */
 void psetexCommand(client *c) {
     c->argv[3] = tryObjectEncoding(c->argv[3]);
     setGenericCommand(c,OBJ_SET_NO_FLAGS,c->argv[1],c->argv[3],c->argv[2],UNIT_MILLISECONDS,NULL,NULL);
 }
 
+/**
+ * get命令
+ */
 int getGenericCommand(client *c) {
     robj *o;
 
+    // 查找key
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL)
         return C_OK;
 
     if (o->type != OBJ_STRING) {
+        // 类型错误
         addReply(c,shared.wrongtypeerr);
         return C_ERR;
     } else {
@@ -176,18 +229,29 @@ int getGenericCommand(client *c) {
     }
 }
 
+/**
+ * get命令
+ */
 void getCommand(client *c) {
     getGenericCommand(c);
 }
 
+/**
+ * getset命令
+ */
 void getsetCommand(client *c) {
+    // 是否能查找到key
     if (getGenericCommand(c) == C_ERR) return;
+    // set
     c->argv[2] = tryObjectEncoding(c->argv[2]);
     setKey(c,c->db,c->argv[1],c->argv[2]);
     notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[1],c->db->id);
     server.dirty++;
 }
 
+/**
+ * setrange命令
+ */
 void setrangeCommand(client *c) {
     robj *o;
     long offset;

@@ -54,15 +54,21 @@
 #define HAVE_CLEARENV
 #endif
 
+// 环境变量
 extern char **environ;
 
+// SPT变量
 static struct {
+	// 原argv[0]
 	/* original value */
 	const char *arg0;
 
+	// base = argv首地址
+	// end = argv尾地址(扩展到env后)
 	/* title space available */
 	char *base, *end;
 
+	// argv[0]尾地址(\0位置)
 	 /* pointer to original nul character within base */
 	char *nul;
 
@@ -79,7 +85,9 @@ static inline size_t spt_min(size_t a, size_t b) {
 	return SPT_MIN(a, b);
 } /* spt_min() */
 
-
+/**
+ * 清空env
+ */
 /*
  * For discussion on the portability of the various methods, see
  * http://lists.freebsd.org/pipermail/freebsd-stable/2008-June/043136.html
@@ -91,6 +99,7 @@ int spt_clearenv(void) {
 	extern char **environ;
 	static char **tmp;
 
+	// 分配新的内存
 	if (!(tmp = malloc(sizeof *tmp)))
 		return errno;
 
@@ -101,7 +110,16 @@ int spt_clearenv(void) {
 #endif
 } /* spt_clearenv() */
 
-
+/**
+ * 拷贝环境变量
+ * 先使用envcopy保存environ指向的地址，
+ * 调用spt_clearenv使environ为NULL，这时envcopy指向的内容依然有效，
+ * 解析envcopy，调用setenv函数。
+ * 
+ * @param envc 环境变量数量
+ * @param oldenv 环境变量
+ * @return 0 成功
+ */
 static int spt_copyenv(int envc, char *oldenv[]) {
 	extern char **environ;
 	char **envcopy = NULL;
@@ -109,9 +127,11 @@ static int spt_copyenv(int envc, char *oldenv[]) {
 	int i, error;
 	int envsize;
 
+	// 环境变量已经被修改 直接返回
 	if (environ != oldenv)
 		return 0;
 
+	// 拷贝oldenv数组(仅数组)
 	/* Copy environ into envcopy before clearing it. Shallow copy is
 	 * enough as clearenv() only clears the environ array.
 	 */
@@ -121,6 +141,7 @@ static int spt_copyenv(int envc, char *oldenv[]) {
 		return ENOMEM;
 	memcpy(envcopy, oldenv, envsize);
 
+	// 清空SPT中的env
 	/* Note that the state after clearenv() failure is undefined, but we'll
 	 * just assume an error means it was left unchanged.
 	 */
@@ -132,13 +153,16 @@ static int spt_copyenv(int envc, char *oldenv[]) {
 
 	/* Set environ from envcopy */
 	for (i = 0; envcopy[i]; i++) {
+		// 查找 =
 		if (!(eq = strchr(envcopy[i], '=')))
 			continue;
 
 		*eq = '\0';
+		// 设置env
 		error = (0 != setenv(envcopy[i], eq + 1, 1))? errno : 0;
 		*eq = '=';
 
+		// 失败
 		/* On error, do our best to restore state */
 		if (error) {
 #ifdef HAVE_CLEARENV
@@ -160,7 +184,13 @@ static int spt_copyenv(int envc, char *oldenv[]) {
 	return 0;
 } /* spt_copyenv() */
 
-
+/**
+ * 拷贝参数
+ * 
+ * @param argc 参数个数
+ * @param argv 参数值
+ * @return 0 成功
+ */
 static int spt_copyargs(int argc, char *argv[]) {
 	char *tmp;
 	int i;
@@ -179,11 +209,15 @@ static int spt_copyargs(int argc, char *argv[]) {
 } /* spt_copyargs() */
 
 /**
- * 修改进程名
+ * 初始化SPT
  * 
  * Linux进程名称是通过命令行参数argv[0]来标识。
  * Linux环境变量参数信息，表示进程执行需要的所有环境变量信息。通过全局变量Char **environ;可以访问环境变量。
  * 命令行参数argv和环境变量信息environ是在一块连续的内存中表示的，并且environ紧跟在argv后面。
+ * 
+ * 目的：
+ * 将argv和environ相关的数据拷贝到新的内存中
+ * 原内存用于设置新的进程名称
  * 
  * @param argc 命令行参数个数
  * @param argv 命令行参数
@@ -212,7 +246,7 @@ void spt_init(int argc, char *argv[]) {
 	nul = &base[strlen(base)];
 	end = nul + 1;
 
-	// 尽可能向后扩展
+	// 尽可能向后扩展end
 	// i < argc 表示 命令行参数
 	// i >= argc && argv[i] 非命令行参数 但有指针 
 	/* Attempt to extend end as far as we can, while making sure
@@ -238,8 +272,10 @@ void spt_init(int argc, char *argv[]) {
 		if (end >= envp[i] && end <= envp[i] + strlen(envp[i]))
 			end = envp[i] + strlen(envp[i]) + 1;
 	}
+	// 环境变量数量
 	envc = i;
 
+	// 拷贝argv[0] 原进程名
 	/* We're going to deep copy argv[], but argv[0] will still point to
 	 * the old memory for the purpose of updating the title so we need
 	 * to keep the original value elsewhere.
@@ -248,26 +284,34 @@ void spt_init(int argc, char *argv[]) {
 		goto syerr;
 
 #if __GLIBC__
+	// program_invocation_name和program_invocation_short_name为glibc提供的取程序名全局变量
+	// 拷贝program_invocation_name
 	if (!(tmp = strdup(program_invocation_name)))
 		goto syerr;
 
+	// 修改program_invocation_name指向拷贝内存
 	program_invocation_name = tmp;
 
+	// 拷贝program_invocation_short_name
 	if (!(tmp = strdup(program_invocation_short_name)))
 		goto syerr;
 
+	// 修改program_invocation_short_name指向拷贝的内存
 	program_invocation_short_name = tmp;
 #elif __APPLE__
+	// 拷贝程序名称
 	if (!(tmp = strdup(getprogname())))
 		goto syerr;
 
+	// 设置程序名称到新的内存
 	setprogname(tmp);
 #endif
-
     /* Now make a full deep copy of the environment and argv[] */
+	// 拷贝环境变量
 	if ((error = spt_copyenv(envc, envp)))
 		goto error;
 
+	// 拷贝参数 从argv[1]开始拷贝
 	if ((error = spt_copyargs(argc, argv)))
 		goto error;
 
@@ -287,6 +331,12 @@ error:
 #define SPT_MAXTITLE 255
 #endif
 
+/**
+ * 设置进程名
+ * 
+ * @param fmt 格式
+ * @param 参数
+ */
 void setproctitle(const char *fmt, ...) {
 	char buf[SPT_MAXTITLE + 1]; /* use buffer in case argv[0] is passed */
 	va_list ap;
@@ -296,28 +346,39 @@ void setproctitle(const char *fmt, ...) {
 	if (!SPT.base)
 		return;
 
+	// buf 进程名
+	// len 进程名长度
 	if (fmt) {
+		// 格式化新进程名
 		va_start(ap, fmt);
 		len = vsnprintf(buf, sizeof buf, fmt, ap);
 		va_end(ap);
 	} else {
+		// 使用原进程名
 		len = snprintf(buf, sizeof buf, "%s", SPT.arg0);
 	}
 
 	if (len <= 0)
 		{ error = errno; goto error; }
 
+	// 重置SPT内存
 	if (!SPT.reset) {
+		// 未重置 则重置全部内存
 		memset(SPT.base, 0, SPT.end - SPT.base);
 		SPT.reset = 1;
 	} else {
+		// 已重置 则重置 min(buf大小, 原内存大小)
 		memset(SPT.base, 0, spt_min(sizeof buf, SPT.end - SPT.base));
 	}
 
+	// 如果新进程名过长  则截断
 	len = spt_min(len, spt_min(sizeof buf, SPT.end - SPT.base) - 1);
+	// 拷贝内存
 	memcpy(SPT.base, buf, len);
+	// 获得新的\0位置
 	nul = &SPT.base[len];
 
+	// 添加末尾'.'字符
 	if (nul < SPT.nul) {
 		*SPT.nul = '.';
 	} else if (nul == SPT.nul && &nul[1] < SPT.end) {

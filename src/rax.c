@@ -90,27 +90,50 @@ void raxSetDebugMsg(int onoff) {
  * need to navigate the tree upward.
  * ------------------------------------------------------------------------- */
 
+/**
+ * raxStack初始化
+ * 
+ * @param ts raxStack
+ */
 /* Initialize the stack. */
 static inline void raxStackInit(raxStack *ts) {
+    // stack指向static_items第一个元素
     ts->stack = ts->static_items;
+    // 元素数0
     ts->items = 0;
+    // 最大元素数32
     ts->maxitems = RAX_STACK_STATIC_ITEMS;
     ts->oom = 0;
 }
 
+/**
+ * push
+ * 如static_items无法满足，则申请堆内存
+ * 每次扩展元素最大数量*2
+ * 
+ * @param ts raxStack
+ * @param ptr 节点指针
+ * @return 1 成功 0 失败
+ */
 /* Push an item into the stack, returns 1 on success, 0 on out of memory. */
 static inline int raxStackPush(raxStack *ts, void *ptr) {
+    // 栈大小已无可用内存 需重新分配
     if (ts->items == ts->maxitems) {
         if (ts->stack == ts->static_items) {
+            // ts->stack == ts->static_items static_items为原始数组
+            // 申请堆内存
             ts->stack = rax_malloc(sizeof(void*)*ts->maxitems*2);
+            // 分配失败
             if (ts->stack == NULL) {
                 ts->stack = ts->static_items;
                 ts->oom = 1;
                 errno = ENOMEM;
                 return 0;
             }
+            // 拷贝数据
             memcpy(ts->stack,ts->static_items,sizeof(void*)*ts->maxitems);
         } else {
+            // 已分配过堆内存 重新分配
             void **newalloc = rax_realloc(ts->stack,sizeof(void*)*ts->maxitems*2);
             if (newalloc == NULL) {
                 ts->oom = 1;
@@ -119,13 +142,21 @@ static inline int raxStackPush(raxStack *ts, void *ptr) {
             }
             ts->stack = newalloc;
         }
+        // 修改最大元素数量
         ts->maxitems *= 2;
     }
+    // 设置元素 增加元素个数
     ts->stack[ts->items] = ptr;
     ts->items++;
     return 1;
 }
 
+/**
+ * pop
+ * 
+ * @param ts raxStack
+ * @return 栈顶元素
+ */
 /* Pop an item from the stack, the function returns NULL if there are no
  * items to pop. */
 static inline void *raxStackPop(raxStack *ts) {
@@ -134,6 +165,12 @@ static inline void *raxStackPop(raxStack *ts) {
     return ts->stack[ts->items];
 }
 
+/**
+ * peek
+ * 
+ * @param ts raxStack
+ * @return 栈顶元素
+ */
 /* Return the stack item at the top of the stack without actually consuming
  * it. */
 static inline void *raxStackPeek(raxStack *ts) {
@@ -141,6 +178,11 @@ static inline void *raxStackPeek(raxStack *ts) {
     return ts->stack[ts->items-1];
 }
 
+/**
+ * 释放栈
+ * 
+ * @param ts raxStack
+ */
 /* Free the stack in case we used heap allocation. */
 static inline void raxStackFree(raxStack *ts) {
     if (ts->stack != ts->static_items) rax_free(ts->stack);
@@ -198,13 +240,20 @@ raxNode *raxNewNode(size_t children, int datafield) {
     return node;
 }
 
+/**
+ * 创建基数树
+ * 
+ * @return 基数树
+ */
 /* Allocate a new rax and return its pointer. On out of memory the function
  * returns NULL. */
 rax *raxNew(void) {
+    // 分配内存
     rax *rax = rax_malloc(sizeof(*rax));
     if (rax == NULL) return NULL;
     rax->numele = 0;
     rax->numnodes = 1;
+    // 创建heads
     rax->head = raxNewNode(0,0);
     if (rax->head == NULL) {
         rax_free(rax);

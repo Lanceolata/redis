@@ -39,6 +39,9 @@ static void setProtocolError(const char *errstr, client *c);
 int postponeClientRead(client *c);
 int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
 
+/**
+ * 
+ */
 /* Return the size consumed from the allocator, for the specified SDS string,
  * including internal fragmentation. This function is used in order to compute
  * the client output buffer size. */
@@ -182,6 +185,14 @@ client *createClient(connection *conn) {
     return c;
 }
 
+/**
+ * 安装写处理器到事件循环
+ * 
+ * 该方法将client放入server.clients_pending_write列表中，会将其buffer中的数据写入socket。
+ * 请注意，它还没有安装写处理器，为了处理这些需要些数据的客户端，因此我们尝试在返回事件循环之前执行此操作。
+ * 
+ * @param c client
+ */
 /* This function puts the client in the queue of clients that should write
  * their output buffers to the socket. Note that it does not *yet* install
  * the write handler, to start clients are put in a queue of clients that need
@@ -190,6 +201,10 @@ client *createClient(connection *conn) {
  * If we fail and there is more data to write, compared to what the socket
  * buffers can hold, then we'll really install the handler. */
 void clientInstallWriteHandler(client *c) {
+    // CLIENT_PENDING_WRITE 已安装写处理器到事件循环
+    // REPL_STATE_NONE slave未上线
+    // SLAVE_STATE_ONLINE slave已上线
+    // repl_put_online_on_ack 首次ack时会安装写处理器
     /* Schedule the client to write the output buffers to the socket only
      * if not already done and, for slaves, if the slave can actually receive
      * writes at this stage. */
@@ -197,6 +212,11 @@ void clientInstallWriteHandler(client *c) {
         (c->replstate == REPL_STATE_NONE ||
          (c->replstate == SLAVE_STATE_ONLINE && !c->repl_put_online_on_ack)))
     {
+        // 标记CLIENT_PENDING_WRITE
+        // 客户端放入server.clients_pending_write
+        // 在这个不安装写处理器，而是标记客户端并将其放入server.clients_pending_write列表中。
+        // 这样，在重新进入事件循环之前，我们可以尝试直接写入客户机套接字，避免系统调用。
+        // 只有在无法一次编写整个回复的情况下，我们才会真正安装写处理器。
         /* Here instead of installing the write handler, we just flag the
          * client and put it into a list of clients that have something
          * to write to the socket. This way before re-entering the event
@@ -208,6 +228,29 @@ void clientInstallWriteHandler(client *c) {
     }
 }
 
+/**
+ * 准备向客户端写入数据
+ * 
+ * 这个函数在每次向客户端发送数据时都会被调用。函数的行为如下：
+ * 当客户端可以接收新数据时（通常情况下都是这样），函数返回 REDIS_OK ，
+ * 并将写处理器（write handler）安装到事件循环中，
+ * 这样当套接字可写时，新数据就会被写入。
+ * 
+ * 对于那些不应该接收新数据的客户端，
+ * 比如伪客户端、 master ，
+ * 或者写处理器安装失败时，
+ * 函数返回 REDIS_ERR 。
+ * 
+ * 未安装写处理器到事件循环，仍返回C_OK，情况如下：
+ * 1. 写处理器已安装，可以根据输出buffer判断
+ * 2. 客户端是slave，但还未上线，只加入写buffer，不实际发送
+ * 
+ * 通常在每个回复被创建时调用，如果函数返回C_ERR ，
+ * 那么没有数据会被追加到输出缓冲区。
+ * 
+ * @param c client
+ * @return 0 ok -1 error
+ */
 /* This function is called every time we are going to transmit new data
  * to the client. The behavior is the following:
  *
@@ -231,23 +274,32 @@ void clientInstallWriteHandler(client *c) {
  * data to the clients output buffers. If the function returns C_ERR no
  * data should be appended to the output buffers. */
 int prepareClientToWrite(client *c) {
+    // LUA脚本 或 子模块 所使用的伪客户端 可写
     /* If it's the Lua client we always return ok without installing any
      * handler since there is no socket at all. */
     if (c->flags & (CLIENT_LUA|CLIENT_MODULE)) return C_OK;
 
+    // 客户端 处于待关闭状态 不可写
     /* If CLIENT_CLOSE_ASAP flag is set, we need not write anything. */
     if (c->flags & CLIENT_CLOSE_ASAP) return C_ERR;
 
+    // 客户端 禁止回复 或 跳过当前回复 不可写
     /* CLIENT REPLY OFF / SKIP handling: don't send replies. */
     if (c->flags & (CLIENT_REPLY_OFF|CLIENT_REPLY_SKIP)) return C_ERR;
 
+    // 客户端是主服务器并且不接受查询 不可写
     /* Masters don't receive replies, unless CLIENT_MASTER_FORCE_REPLY flag
      * is set. */
     if ((c->flags & CLIENT_MASTER) &&
         !(c->flags & CLIENT_MASTER_FORCE_REPLY)) return C_ERR;
 
+    // 无连接的伪客户端 不可写的
     if (!c->conn) return C_ERR; /* Fake client for AOF loading. */
 
+    // 如 未安装写处理器到事件循环 and 无CLIENT_PENDING_READ标志
+    // CLIENT_PENDING_READ 标志为IO线程，不安装写处理器到事件循环
+    // 在handleClientsWithPendingReadsUsingThreads时处理
+    // clientInstallWriteHandler 会将client放入server.clients_pending_write列表中，不会安装写处理器
     /* Schedule the client to write the output buffers to the socket, unless
      * it should already be setup to do so (it has already pending data).
      *
@@ -266,38 +318,69 @@ int prepareClientToWrite(client *c) {
  * Low level functions to add more data to output buffers.
  * -------------------------------------------------------------------------- */
 
+/**
+ * 尝试将回复数据添加到c->buf中
+ * 
+ * @param c client
+ * @param s 数据
+ * @param len 数据长度
+ * @return 0 ok -1 error
+ */
 /* Attempts to add the reply to the static buffer in the client struct.
  * Returns C_ERR if the buffer is full, or the reply list is not empty,
  * in which case the reply must be added to the reply list. */
 int _addReplyToBuffer(client *c, const char *s, size_t len) {
+    // 有效的字符串
     size_t available = sizeof(c->buf)-c->bufpos;
 
+    // 回复后关闭 直接返回C_OK
+    // 不返回数据
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return C_OK;
 
+    // c->reply队列不为空
     /* If there already are entries in the reply list, we cannot
      * add anything more to the static buffer. */
     if (listLength(c->reply) > 0) return C_ERR;
 
+    // 长度不满足数据要求
     /* Check that the buffer has enough space available for this string. */
     if (len > available) return C_ERR;
 
+    // 拷贝数据
     memcpy(c->buf+c->bufpos,s,len);
     c->bufpos+=len;
     return C_OK;
 }
 
+/**
+ * 尝试将回复数据添加到c->reply中
+ * 
+ * @param c client
+ * @param s 数据
+ * @param len 数据长度
+ */
 /* Adds the reply to the reply linked list.
  * Note: some edits to this function need to be relayed to AddReplyFromClient. */
 void _addReplyProtoToList(client *c, const char *s, size_t len) {
+    // 回复后关闭 直接返回
+    // 不返回数据
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
 
+    // 尾节点
     listNode *ln = listLast(c->reply);
+    // 尾节点数据
     clientReplyBlock *tail = ln? listNodeValue(ln): NULL;
 
     /* Note that 'tail' may be NULL even if we have a tail node, because when
      * addReplyDeferredLen() is used, it sets a dummy node to NULL just
      * fo fill it later, when the size of the bulk length is set. */
 
+    // 尾节点存在
+    // 拷贝数据
+    // 1. 计算当前空余buffer长度
+    // 2. 计算拷贝数据长度
+    // 3. 拷贝数据
+    // 4. 修改tail数据长度和len长度
     /* Append to tail string when possible. */
     if (tail) {
         /* Copy the part we can fit into the tail, and leave the rest for a
@@ -309,6 +392,11 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
         s += copy;
         len -= copy;
     }
+    // 尾节点无法写入全部数据
+    // 1. 计算节点数据长度
+    // 2. 创建节点
+    // 3. 拷贝数据
+    // 4. 追加节点到c->reply尾
     if (len) {
         /* Create a new node, make sure it is allocated to at
          * least PROTO_REPLY_CHUNK_BYTES */
@@ -329,14 +417,23 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
  * The following functions are the ones that commands implementations will call.
  * -------------------------------------------------------------------------- */
 
+/**
+ * 添加回复
+ * 
+ * @param c 客户端
+ * @param obj 数据对象
+ */
 /* Add the object 'obj' string representation to the client output buffer. */
 void addReply(client *c, robj *obj) {
+    // 准备向客户端写入数据
     if (prepareClientToWrite(c) != C_OK) return;
 
     if (sdsEncodedObject(obj)) {
+        // 数据对象 写入数据
         if (_addReplyToBuffer(c,obj->ptr,sdslen(obj->ptr)) != C_OK)
             _addReplyProtoToList(c,obj->ptr,sdslen(obj->ptr));
     } else if (obj->encoding == OBJ_ENCODING_INT) {
+        // INT对象 装维string后写入数据
         /* For integer encoded strings we just convert it into a string
          * using our optimized function, and attach the resulting string
          * to the output buffer. */
@@ -362,6 +459,13 @@ void addReplySds(client *c, sds s) {
     sdsfree(s);
 }
 
+/**
+ * 回复客户端数据
+ * 
+ * @param c client
+ * @param s 数据
+ * @param len 数据长度
+ */
 /* This low level function just adds whatever protocol you send it to the
  * client buffer, trying the static buffer initially, and using the string
  * of objects if not possible.
@@ -371,7 +475,9 @@ void addReplySds(client *c, sds s) {
  * _addReplyProtoToList() if we fail to extend the existing tail object
  * in the list of objects. */
 void addReplyProto(client *c, const char *s, size_t len) {
+    // 为客户端安装写处理器到事件循环
     if (prepareClientToWrite(c) != C_OK) return;
+    // 写入数据到buffer中 如失败 则写入队列中
     if (_addReplyToBuffer(c,s,len) != C_OK)
         _addReplyProtoToList(c,s,len);
 }
@@ -641,12 +747,20 @@ void addReplyHumanLongDouble(client *c, long double d) {
     }
 }
 
+/**
+ * 添加 prefix + long long 回复
+ * 
+ * @param c 客户端
+ * @param ll 数据
+ * @param prefix 前缀
+ */
 /* Add a long long as integer reply or bulk len / multi bulk count.
  * Basically this is used to output <prefix><long long><crlf>. */
 void addReplyLongLongWithPrefix(client *c, long long ll, char prefix) {
     char buf[128];
     int len;
 
+    // ll数据较小 使用公共对象
     /* Things like $3\r\n or *2\r\n are emitted very often by the protocol
      * so we have a few shared objects to use if the integer is small
      * like it is most of the times. */
@@ -658,6 +772,7 @@ void addReplyLongLongWithPrefix(client *c, long long ll, char prefix) {
         return;
     }
 
+    // 回复数据
     buf[0] = prefix;
     len = ll2string(buf+1,sizeof(buf)-1,ll);
     buf[len+1] = '\r';
@@ -707,8 +822,14 @@ void addReplyPushLen(client *c, long length) {
     addReplyAggregateLen(c,length,prefix);
 }
 
+/**
+ * 回复Null
+ * 
+ * @param c client
+ */
 void addReplyNull(client *c) {
     if (c->resp == 2) {
+        // 协议版本 == 2
         addReplyProto(c,"$-1\r\n",5);
     } else {
         addReplyProto(c,"_\r\n",3);
@@ -752,10 +873,20 @@ void addReplyBulk(client *c, robj *obj) {
     addReply(c,shared.crlf);
 }
 
+/**
+ * 回复c buffer
+ * 
+ * @param c client
+ * @param p buffer指针
+ * @param len buffer长度
+ */
 /* Add a C buffer as bulk reply */
 void addReplyBulkCBuffer(client *c, const void *p, size_t len) {
+    // 回复 $len
     addReplyLongLongWithPrefix(c,len,'$');
+    // 回复 数据
     addReplyProto(c,p,len);
+    // 回复 \r\n
     addReply(c,shared.crlf);
 }
 
@@ -766,6 +897,12 @@ void addReplyBulkSds(client *c, sds s)  {
     addReply(c,shared.crlf);
 }
 
+/**
+ * 回复c字符串
+ * 
+ * @param c client
+ * @param s 字符串
+ */
 /* Add a C null term string as bulk reply */
 void addReplyBulkCString(client *c, const char *s) {
     if (s == NULL) {
@@ -896,6 +1033,13 @@ void copyClientOutputBuffer(client *dst, client *src) {
     dst->reply_bytes = src->reply_bytes;
 }
 
+/**
+ * 判断客户端是否已安装写处理器到事件循环
+ * c->bufpos 存在 or c->reply 长度大于0
+ * 
+ * @param c client
+ * @return 0 false 1 true
+ */
 /* Return true if the specified client has pending reply buffers to write to
  * the socket. */
 int clientHasPendingReplies(client *c) {
@@ -2871,6 +3015,11 @@ int checkClientOutputBufferLimits(client *c) {
     return soft || hard;
 }
 
+/**
+ * 异步关闭buffer达到软/硬长度限制的客户端。
+ * 
+ * @param c 客户端
+ */
 /* Asynchronously close a client if soft or hard limit is reached on the
  * output buffer size. The caller can check if the client will be closed
  * checking if the client CLIENT_CLOSE_ASAP flag is set.
@@ -2881,10 +3030,14 @@ int checkClientOutputBufferLimits(client *c) {
 void asyncCloseClientOnOutputBufferLimitReached(client *c) {
     if (!c->conn) return; /* It is unsafe to free fake clients. */
     serverAssert(c->reply_bytes < SIZE_MAX-(1024*64));
+    // 长度为0 或 待关闭客户端
     if (c->reply_bytes == 0 || c->flags & CLIENT_CLOSE_ASAP) return;
+    // 检查buffer限制
     if (checkClientOutputBufferLimits(c)) {
+        // 客户端信息
         sds client = catClientInfoString(sdsempty(),c);
 
+        // 异步释放client
         freeClientAsync(c);
         serverLog(LL_WARNING,"Client %s scheduled to be closed ASAP for overcoming of output buffer limits.", client);
         sdsfree(client);

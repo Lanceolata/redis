@@ -42,6 +42,15 @@
 #include "server.h"
 #include "slowlog.h"
 
+/**
+ * 创建slowlogEntry
+ * 
+ * @param c client
+ * @param argv 参数
+ * @param argc 参数数量
+ * @param duration 执行时间
+ * @return slowlogEntry
+ */
 /* Create a new slowlog entry.
  * Incrementing the ref count of all the objects retained is up to
  * this function. */
@@ -57,6 +66,7 @@ slowlogEntry *slowlogCreateEntry(client *c, robj **argv, int argc, long long dur
          * at SLOWLOG_ENTRY_MAX_ARGC, but use the last argument to specify
          * how many remaining arguments there were in the original command. */
         if (slargc != argc && j == slargc-1) {
+            // 参数过长，截断，并设置最后一个参数为 %d more arguments
             se->argv[j] = createObject(OBJ_STRING,
                 sdscatprintf(sdsempty(),"... (%d more arguments)",
                 argc-slargc+1));
@@ -66,6 +76,7 @@ slowlogEntry *slowlogCreateEntry(client *c, robj **argv, int argc, long long dur
                 sdsEncodedObject(argv[j]) &&
                 sdslen(argv[j]->ptr) > SLOWLOG_ENTRY_MAX_STRING)
             {
+                // string对象过长，截断，并追加 %lu more bytes
                 sds s = sdsnewlen(argv[j]->ptr, SLOWLOG_ENTRY_MAX_STRING);
 
                 s = sdscatprintf(s,"... (%lu more bytes)",
@@ -73,6 +84,7 @@ slowlogEntry *slowlogCreateEntry(client *c, robj **argv, int argc, long long dur
                     sdslen(argv[j]->ptr) - SLOWLOG_ENTRY_MAX_STRING);
                 se->argv[j] = createObject(OBJ_STRING,s);
             } else if (argv[j]->refcount == OBJ_SHARED_REFCOUNT) {
+                // 全局对象
                 se->argv[j] = argv[j];
             } else {
                 /* Here we need to duplicate the string objects composing the
@@ -85,14 +97,24 @@ slowlogEntry *slowlogCreateEntry(client *c, robj **argv, int argc, long long dur
             }
         }
     }
+    // 当前时间
     se->time = time(NULL);
+    // 执行时间
     se->duration = duration;
+    // 唯一ID
     se->id = server.slowlog_entry_id++;
+    // 网络地址
     se->peerid = sdsnew(getClientPeerId(c));
+    // client名称
     se->cname = c->name ? sdsnew(c->name->ptr) : sdsempty();
     return se;
 }
 
+/**
+ * 释放slowlogEntry
+ * 
+ * @param septr 释放slowlogEntry
+ */
 /* Free a slow log entry. The argument is void so that the prototype of this
  * function matches the one of the 'free' method of adlist.c.
  *
@@ -101,42 +123,69 @@ void slowlogFreeEntry(void *septr) {
     slowlogEntry *se = septr;
     int j;
 
+    // 减少引用
     for (j = 0; j < se->argc; j++)
         decrRefCount(se->argv[j]);
+    // 释放内存
     zfree(se->argv);
     sdsfree(se->peerid);
     sdsfree(se->cname);
     zfree(se);
 }
 
+/**
+ * 初始化slowlog
+ */
 /* Initialize the slow log. This function should be called a single time
  * at server startup. */
 void slowlogInit(void) {
+    // 创建slowlog列表
     server.slowlog = listCreate();
+    // 设置slowlog_entry_id初始值
     server.slowlog_entry_id = 0;
+    // 添加释放函数
     listSetFreeMethod(server.slowlog,slowlogFreeEntry);
 }
 
+/**
+ * 写入slowlog
+ * 
+ * @param c client
+ * @param argv 参数
+ * @param argc 参数数量
+ * @param duration 执行时间
+ */
 /* Push a new entry into the slow log.
  * This function will make sure to trim the slow log accordingly to the
  * configured max length. */
 void slowlogPushEntryIfNeeded(client *c, robj **argv, int argc, long long duration) {
+    // 无slow log
     if (server.slowlog_log_slower_than < 0) return; /* Slowlog disabled */
+    // 执行时间 >= slowlog_log_slower_than 写入slowlog
     if (duration >= server.slowlog_log_slower_than)
         listAddNodeHead(server.slowlog,
                         slowlogCreateEntry(c,argv,argc,duration));
 
+    // 移除slowlog
     /* Remove old entries if needed. */
     while (listLength(server.slowlog) > server.slowlog_max_len)
         listDelNode(server.slowlog,listLast(server.slowlog));
 }
 
+/**
+ * 清空server.slowlog
+ */
 /* Remove all the entries from the current slow log. */
 void slowlogReset(void) {
     while (listLength(server.slowlog) > 0)
         listDelNode(server.slowlog,listLast(server.slowlog));
 }
 
+/**
+ * SLOWLOG相关命令
+ * 
+ * @param c client
+ */
 /* The SLOWLOG command. Implements all the subcommands needed to handle the
  * Redis slow log. */
 void slowlogCommand(client *c) {

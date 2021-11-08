@@ -86,13 +86,21 @@ void zlibc_free(void *ptr) {
 static size_t used_memory = 0;
 pthread_mutex_t used_memory_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+/**
+ * OOM默认处理函数
+ * 
+ * @param size 分配内存大小
+ */
 static void zmalloc_default_oom(size_t size) {
+    // 错误日志
     fprintf(stderr, "zmalloc: Out of memory trying to allocate %zu bytes\n",
         size);
     fflush(stderr);
+    // 异常终止
     abort();
 }
 
+// OOM处理函数
 static void (*zmalloc_oom_handler)(size_t) = zmalloc_default_oom;
 
 void *zmalloc(size_t size) {
@@ -206,10 +214,17 @@ void zfree(void *ptr) {
 #endif
 }
 
+/**
+ * 拷贝字符串
+ * 
+ * @param s 字符串
+ */
 char *zstrdup(const char *s) {
+    // 长度
     size_t l = strlen(s)+1;
+    // 分配内存
     char *p = zmalloc(l);
-
+    // 拷贝数据
     memcpy(p,s,l);
     return p;
 }
@@ -220,6 +235,11 @@ size_t zmalloc_used_memory(void) {
     return um;
 }
 
+/**
+ * 设置oom时的处理函数
+ * 
+ * @param oom_handler 处理函数
+ */
 void zmalloc_set_oom_handler(void (*oom_handler)(size_t)) {
     zmalloc_oom_handler = oom_handler;
 }

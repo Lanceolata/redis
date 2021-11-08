@@ -612,6 +612,12 @@ int ld2string(char *buf, size_t len, long double value, ld2string_mode mode) {
     return l;
 }
 
+/**
+ * 随机Byte
+ * 
+ * @param p 数据存储地址
+ * @param len 存储长度
+ */
 /* Get random bytes, attempts to get an initial seed from /dev/urandom and
  * the uses a one way hash function in counter mode to generate a random
  * stream. However if /dev/urandom is not available, a weaker seed is used.
@@ -745,6 +751,11 @@ sds getAbsolutePath(char *filename) {
     return abspath;
 }
 
+/**
+ * 获得时区
+ * 
+ * @return 时区
+ */
 /*
  * Gets the proper timezone in a more portable fashion
  * i.e timezone variables are linux specific.

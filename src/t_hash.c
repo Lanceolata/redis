@@ -34,12 +34,21 @@
  * Hash type API
  *----------------------------------------------------------------------------*/
 
+/**
+ * 尝试将ziplist转为hash
+ * 
+ * @param o 对象
+ * @param argv 参数
+ * @param start
+ * @param end
+ */
 /* Check the length of a number of objects to see if we need to convert a
  * ziplist to a real hash. Note that we only check string encoded objects
  * as their string length can be queried in constant time. */
 void hashTypeTryConversion(robj *o, robj **argv, int start, int end) {
     int i;
 
+    // 不是ziplist 直接返回
     if (o->encoding != OBJ_ENCODING_ZIPLIST) return;
 
     for (i = start; i <= end; i++) {

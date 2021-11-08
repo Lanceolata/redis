@@ -695,6 +695,13 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
     return s;
 }
 
+/**
+ * trim字符串
+ * 
+ * @param s 字符串
+ * @param cset 删除字符集合
+ * @return 字符串
+ */
 /* Remove the part of the string from left and from right composed just of
  * contiguous characters found in 'cset', that is a null terminted C string.
  *
@@ -715,11 +722,16 @@ sds sdstrim(sds s, const char *cset) {
 
     sp = start = s;
     ep = end = s+sdslen(s)-1;
+    // 头
     while(sp <= end && strchr(cset, *sp)) sp++;
+    // 尾
     while(ep > sp && strchr(cset, *ep)) ep--;
+    // 长度
     len = (sp > ep) ? 0 : ((ep-sp)+1);
+    // 移动数据
     if (s != sp) memmove(s, sp, len);
     s[len] = '\0';
+    // 重新设置字符串长度
     sdssetlen(s,len);
     return s;
 }
@@ -768,6 +780,11 @@ void sdsrange(sds s, ssize_t start, ssize_t end) {
     sdssetlen(s,newlen);
 }
 
+/**
+ * 字符串转小写
+ *
+ * @param s 字符串
+ */
 /* Apply tolower() to every character of the sds string 's'. */
 void sdstolower(sds s) {
     size_t len = sdslen(s), j;
@@ -871,6 +888,12 @@ cleanup:
     }
 }
 
+/**
+ * 释放解析后的argc和argv
+ * 
+ * @param tokens argv
+ * @param count argc
+ */
 /* Free the result returned by sdssplitlen(), or do nothing if 'tokens' is NULL. */
 void sdsfreesplitres(sds *tokens, int count) {
     if (!tokens) return;
@@ -917,6 +940,11 @@ int is_hex_digit(char c) {
            (c >= 'A' && c <= 'F');
 }
 
+/**
+ * 16进制转10进制
+ * 
+ * @param c 字符
+ */
 /* Helper function for sdssplitargs() that converts a hex digit into an
  * integer from 0 to 15 */
 int hex_digit_to_int(char c) {
@@ -941,6 +969,28 @@ int hex_digit_to_int(char c) {
     }
 }
 
+/**
+ * 将一行文本分割成多个参数，每个参数可以有以下的类编程语言 REPL 格式：
+ * 
+ * 参数的个数会保存在 *argc 中，函数返回一个 sds 数组。
+ * 
+ * 调用者应该使用 sdsfreesplitres() 来释放函数返回的 sds 数组。
+ * 
+ * sdscatrepr() 可以将一个字符串转换为一个带引号（quoted）的字符串，
+ * 这个带引号的字符串可以被 sdssplitargs() 分析。
+ * 
+ * 即使输入出现空字符串， NULL ，或者输入带有未对应的括号，
+ * 函数都会将已成功处理的字符串先返回。
+ * 
+ * 这个函数主要用于 config.c 中对配置文件进行分析。
+ * 例子：
+ *  sds *arr = sdssplitargs("timeout 10086\r\nport 123321\r\n");
+ * 会得出
+ *  arr[0] = "timeout"
+ *  arr[1] = "10086"
+ *  arr[2] = "port"
+ *  arr[3] = "123321"
+ */
 /* Split a line into arguments, where every argument can be in the
  * following programming-language REPL-alike form:
  *
@@ -967,21 +1017,27 @@ sds *sdssplitargs(const char *line, int *argc) {
 
     *argc = 0;
     while(1) {
+        // 跳过空白
         /* skip blanks */
         while(*p && isspace(*p)) p++;
         if (*p) {
             /* get a token */
+            // 双引号
             int inq=0;  /* set to 1 if we are in "quotes" */
+            // 单引号
             int insq=0; /* set to 1 if we are in 'single quotes' */
             int done=0;
 
+            // 初始化current
             if (current == NULL) current = sdsempty();
             while(!done) {
                 if (inq) {
+                    // 双引号内
                     if (*p == '\\' && *(p+1) == 'x' &&
                                              is_hex_digit(*(p+2)) &&
                                              is_hex_digit(*(p+3)))
                     {
+                        // 16进制转10进制
                         unsigned char byte;
 
                         byte = (hex_digit_to_int(*(p+2))*16)+
@@ -989,6 +1045,7 @@ sds *sdssplitargs(const char *line, int *argc) {
                         current = sdscatlen(current,(char*)&byte,1);
                         p += 3;
                     } else if (*p == '\\' && *(p+1)) {
+                        // 转移字符
                         char c;
 
                         p++;
@@ -1002,6 +1059,7 @@ sds *sdssplitargs(const char *line, int *argc) {
                         }
                         current = sdscatlen(current,&c,1);
                     } else if (*p == '"') {
+                        // 双引号结束
                         /* closing quote must be followed by a space or
                          * nothing at all. */
                         if (*(p+1) && !isspace(*(p+1))) goto err;
@@ -1013,21 +1071,29 @@ sds *sdssplitargs(const char *line, int *argc) {
                         current = sdscatlen(current,p,1);
                     }
                 } else if (insq) {
+                    // 单引号内
                     if (*p == '\\' && *(p+1) == '\'') {
+                        // 追加单引号
                         p++;
                         current = sdscatlen(current,"'",1);
                     } else if (*p == '\'') {
+                        // 单引号结束
                         /* closing quote must be followed by a space or
                          * nothing at all. */
                         if (*(p+1) && !isspace(*(p+1))) goto err;
                         done=1;
                     } else if (!*p) {
+                        // 非法字符
                         /* unterminated quotes */
                         goto err;
                     } else {
+                        // 追加字符
                         current = sdscatlen(current,p,1);
                     }
                 } else {
+                    // 结束 done=1 ' ' '\n' '\r' '\t' '\0'
+                    // 双引号 inq=1 '"'
+                    // 单引号 insq=1 '\''
                     switch(*p) {
                     case ' ':
                     case '\n':
@@ -1043,18 +1109,21 @@ sds *sdssplitargs(const char *line, int *argc) {
                         insq=1;
                         break;
                     default:
+                        // 追加字符
                         current = sdscatlen(current,p,1);
                         break;
                     }
                 }
                 if (*p) p++;
             }
+            // 插入vector
             /* add the token to the vector */
             vector = s_realloc(vector,((*argc)+1)*sizeof(char*));
             vector[*argc] = current;
             (*argc)++;
             current = NULL;
         } else {
+            // 返回
             /* Even on empty input string return something not NULL. */
             if (vector == NULL) vector = s_malloc(sizeof(void*));
             return vector;

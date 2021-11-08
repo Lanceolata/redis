@@ -36,6 +36,9 @@
 struct aeEventLoop;
 typedef struct connection connection;
 
+/**
+ * 连接状态枚举
+ */
 typedef enum {
     CONN_STATE_NONE = 0,
     CONN_STATE_CONNECTING,
@@ -51,8 +54,10 @@ typedef enum {
 #define CONN_TYPE_SOCKET            1
 #define CONN_TYPE_TLS               2
 
+// 回调函数
 typedef void (*ConnectionCallbackFunc)(struct connection *conn);
 
+// 连接类型 机器对应的函数
 typedef struct ConnectionType {
     void (*ae_handler)(struct aeEventLoop *el, int fd, void *clientData, int mask);
     int (*connect)(struct connection *conn, const char *addr, int port, const char *source_addr, ConnectionCallbackFunc connect_handler);
@@ -70,6 +75,7 @@ typedef struct ConnectionType {
     int (*get_type)(struct connection *conn);
 } ConnectionType;
 
+// 连接
 struct connection {
     ConnectionType *type;
     ConnectionState state;

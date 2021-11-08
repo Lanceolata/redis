@@ -1024,6 +1024,12 @@ struct redisCommand redisCommandTable[] = {
  * function of Redis may be called from other threads. */
 void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst);
 
+/**
+ * 日志
+ * 
+ * @param level 级别
+ * @param msg 消息
+ */
 /* Low level logging. To use only for very big messages, otherwise
  * serverLog() is to prefer. */
 void serverLogRaw(int level, const char *msg) {
@@ -1041,8 +1047,10 @@ void serverLogRaw(int level, const char *msg) {
     if (!fp) return;
 
     if (rawmode) {
+        // 原始模式 直接输出
         fprintf(fp,"%s",msg);
     } else {
+        // 格式化并打印
         int off;
         struct timeval tv;
         int role_char;
@@ -1069,6 +1077,13 @@ void serverLogRaw(int level, const char *msg) {
     if (server.syslog_enabled) syslog(syslogLevelMap[level], "%s", msg);
 }
 
+/**
+ * 日志
+ * 
+ * @param level 日志级别
+ * @param fmt 格式
+ * @param 值
+ */
 /* Like serverLogRaw() but with printf-alike support. This is the function that
  * is used across the code. The raw version is only used in order to dump
  * the INFO output on crash. */
@@ -1113,6 +1128,11 @@ err:
     if (!log_to_stdout) close(fd);
 }
 
+/**
+ * 获得微秒级时间戳
+ * 
+ * @return 微秒级时间戳
+ */
 /* Return the UNIX time in microseconds */
 long long ustime(void) {
     struct timeval tv;
@@ -1124,6 +1144,11 @@ long long ustime(void) {
     return ust;
 }
 
+/**
+ * 获得毫秒级时间戳
+ * 
+ * @return 毫秒级时间戳
+ */
 /* Return the UNIX time in milliseconds */
 mstime_t mstime(void) {
     return ustime()/1000;
@@ -1399,6 +1424,9 @@ dictType modulesDictType = {
     NULL                        /* val destructor */
 };
 
+/**
+ * 迁移缓存字典类型
+ */
 /* Migrate cache dict type. */
 dictType migrateCacheDictType = {
     dictSdsHash,                /* hash function */
@@ -1747,6 +1775,11 @@ void databasesCron(void) {
     }
 }
 
+/**
+ * 更新时间缓存
+ * 
+ * @param update_daylight_info 是否更新server.daylight_active
+ */
 /* We take a cached value of the unix time in the global state because with
  * virtual memory and aging there is to store the current time in objects at
  * every object access, and accuracy is not needed. To access a global var is
@@ -1758,10 +1791,12 @@ void databasesCron(void) {
  * such info only when calling this function from serverCron() but not when
  * calling it from call(). */
 void updateCachedTime(int update_daylight_info) {
+    // 更新时间戳
     server.ustime = ustime();
     server.mstime = server.ustime / 1000;
     server.unixtime = server.mstime / 1000;
 
+    // 更新daylight_active 夏令时规则
     /* To get information about daylight saving time, we need to call
      * localtime_r and cache the result. However calling localtime_r in this
      * context is safe since we will never fork() while here, in the main
@@ -1770,7 +1805,9 @@ void updateCachedTime(int update_daylight_info) {
     if (update_daylight_info) {
         struct tm tm;
         time_t ut = server.unixtime;
+        // 获得系统时间
         localtime_r(&ut,&tm);
+        // 是否夏令时
         server.daylight_active = tm.tm_isdst;
     }
 }
@@ -2350,15 +2387,20 @@ void createSharedObjects(void) {
 void initServerConfig(void) {
     int j;
 
+    // 更新时间缓存 同时更新夏令时标识
     updateCachedTime(1);
+    // 获得runid 随机16进制字符串 长度40
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
     server.runid[CONFIG_RUN_ID_SIZE] = '\0';
+    // 设置server.replid 随机16进制字符串 长度40
     changeReplicationId();
+    // 清空server.replid2 设置server.second_replid_offset = -1
     clearReplicationId2();
     server.hz = CONFIG_DEFAULT_HZ; /* Initialize it ASAP, even if it may get
                                       updated later after loading the config.
                                       This value may be used before the server
                                       is initialized. */
+    // 时区
     server.timezone = getTimeZone(); /* Initialized by tzset(). */
     server.configfile = NULL;
     server.executable = NULL;
@@ -2397,10 +2439,13 @@ void initServerConfig(void) {
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType,NULL);
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.loading_process_events_interval_bytes = (1024*1024*2);
-
+    // lru时钟
+    // LRU_BITS 24
+    // (ms / 1000) & (1<<LRU_BITS)-1)
     server.lruclock = getLRUClock();
+    // 重置server.saveparams
     resetServerSaveParams();
-
+    // 设置server.saveparams和server.saveparamslen
     appendServerSaveParams(60*60,1);  /* save after 1 hour and 1 change */
     appendServerSaveParams(300,100);  /* save after 5 minutes and 100 changes */
     appendServerSaveParams(60,10000); /* save after 1 minute and 10000 changes */
@@ -2441,11 +2486,13 @@ void initServerConfig(void) {
     R_NegInf = -1.0/R_Zero;
     R_Nan = R_Zero/R_Zero;
 
+    // 命令表
     /* Command table -- we initialize it here as it is part of the
      * initial configuration, since command names may be changed via
      * redis.conf using the rename-command directive. */
     server.commands = dictCreate(&commandTableDictType,NULL);
     server.orig_commands = dictCreate(&commandTableDictType,NULL);
+    // 初始化命令表
     populateCommandTable();
     server.delCommand = lookupCommandByCString("del");
     server.multiCommand = lookupCommandByCString("multi");
@@ -3123,13 +3170,20 @@ int populateCommandTableParseFlags(struct redisCommand *c, char *strflags) {
     return C_OK;
 }
 
+/**
+ * 根据硬编码命令表(redisCommandTable)填充命令表server.commands和server.orig_commands
+ */
 /* Populates the Redis Command Table starting from the hard coded list
  * we have on top of server.c file. */
 void populateCommandTable(void) {
     int j;
+    // 命令数量
+    // sizeof(redisCommandTable) 整个数组的内存
+    // sizeof(struct redisCommand) redisCommand接口的大小
     int numcommands = sizeof(redisCommandTable)/sizeof(struct redisCommand);
 
     for (j = 0; j < numcommands; j++) {
+        // 命令
         struct redisCommand *c = redisCommandTable+j;
         int retval1, retval2;
 
@@ -3137,9 +3191,11 @@ void populateCommandTable(void) {
          * set of flags. */
         if (populateCommandTableParseFlags(c,c->sflags) == C_ERR)
             serverPanic("Unsupported command flag");
-
+        // 设置id 自增ID
         c->id = ACLGetCommandID(c->name); /* Assign the ID used for ACL. */
+        // 插入字典
         retval1 = dictAdd(server.commands, sdsnew(c->name), c);
+        // 命令字典 不受redis.conf中rename-command影响
         /* Populate an additional dictionary that will be unaffected
          * by rename-command statements in redis.conf. */
         retval2 = dictAdd(server.orig_commands, sdsnew(c->name), c);
@@ -3205,10 +3261,17 @@ struct redisCommand *lookupCommand(sds name) {
     return dictFetchValue(server.commands, name);
 }
 
+/**
+ * 命令名称查找对应命令
+ * 
+ * @param s 名称
+ * @return 命令指针
+ */
 struct redisCommand *lookupCommandByCString(const char *s) {
     struct redisCommand *cmd;
     sds name = sdsnew(s);
 
+    // 查找元素 失败返回NULL
     cmd = dictFetchValue(server.commands, name);
     sdsfree(name);
     return cmd;
@@ -5134,6 +5197,14 @@ void sendChildCOWInfo(int ptype, char *pname) {
 
 void memtest(size_t megabytes, int passes);
 
+/**
+ * 检查是否哨兵模式
+ * 进程名中包含redis-sentinel 或 参数中存在--sentinel
+ * 
+ * @param argc 参数个数
+ * @param argv 参数
+ * @return 1 哨兵模式
+ */
 /* Returns 1 if there is --sentinel among the arguments or if
  * argv[0] contains "redis-sentinel". */
 int checkForSentinelMode(int argc, char **argv) {
@@ -5184,7 +5255,13 @@ void loadDataFromDisk(void) {
     }
 }
 
+/**
+ * OOM时处理函数
+ * 
+ * @param allocation_size 分配内存大小
+ */
 void redisOutOfMemoryHandler(size_t allocation_size) {
+    // 日志
     serverLog(LL_WARNING,"Out Of Memory allocating %zu bytes!",
         allocation_size);
     serverPanic("Redis aborting for OUT OF MEMORY. Allocating %zu bytes!", 
@@ -5310,20 +5387,32 @@ int main(int argc, char **argv) {
 
     /* We need to initialize our libraries, and the server configuration. */
 #ifdef INIT_SETPROCTITLE_REPLACEMENT
-    // 修改进程名称
+    // 初始化SPT
     spt_init(argc, argv);
 #endif
+    // 设置使用当前系统默认地域
     setlocale(LC_COLLATE,"");
+    // tzset()函数使用环境变量TZ的当前设置把值赋给三个全局变量:daylight,timezone和tzname。
     tzset(); /* Populates 'timezone' global. */
+    // 给zmalloc_oom_handler赋值
+    // redisOutOfMemoryHandler为在内存不足时采取的操作
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
+    // time(NULL)获得秒级时间戳
+    // getpid获得进程ID
+    // srand初始化随机发生器
     srand(time(NULL)^getpid());
+    // 获得微秒时间
     gettimeofday(&tv,NULL);
+    // 初始化crc64
     crc64_init();
 
+    // 字典hash种子
     uint8_t hashseed[16];
     getRandomBytes(hashseed,sizeof(hashseed));
     dictSetHashFunctionSeed(hashseed);
+    // 哨兵模式
     server.sentinel_mode = checkForSentinelMode(argc,argv);
+    // 初始化配置
     initServerConfig();
     ACLInit(); /* The ACL subsystem must be initialized ASAP because the
                   basic networking code and client creation depends on it. */

@@ -30,6 +30,10 @@
 #include "server.h"
 #include <unistd.h>
 
+/**
+ * 父子进程channel
+ * 用于RDB/AOF
+ */
 /* Open a child-parent channel used in order to move information about the
  * RDB / AOF saving process from the child to the parent (for instance
  * the amount of copy on write memory used) */
@@ -39,12 +43,18 @@ void openChildInfoPipe(void) {
          * but we call anyway cloesChildInfoPipe() since can't hurt. */
         closeChildInfoPipe();
     } else if (anetNonBlock(NULL,server.child_info_pipe[0]) != ANET_OK) {
+        // 子进程设置NonBlock
         closeChildInfoPipe();
     } else {
+        // 设置子线程数据为0
         memset(&server.child_info_data,0,sizeof(server.child_info_data));
     }
 }
 
+/**
+ * 关闭文件描述符
+ * 关闭文件描述符 并 至为-1
+ */
 /* Close the pipes opened with openChildInfoPipe(). */
 void closeChildInfoPipe(void) {
     if (server.child_info_pipe[0] != -1 ||
@@ -57,30 +67,47 @@ void closeChildInfoPipe(void) {
     }
 }
 
+/**
+ * 子进程发送数据到父进程
+ * 
+ * @param ptype
+ */
 /* Send COW data to parent. The child should call this function after populating
  * the corresponding fields it want to sent (according to the process type). */
 void sendChildInfo(int ptype) {
+    // 无父线程
     if (server.child_info_pipe[1] == -1) return;
+    // 子线程消息码
     server.child_info_data.magic = CHILD_INFO_MAGIC;
+    // 进程类型
     server.child_info_data.process_type = ptype;
+    // 数据长度
     ssize_t wlen = sizeof(server.child_info_data);
+    // 写数据
     if (write(server.child_info_pipe[1],&server.child_info_data,wlen) != wlen) {
         /* Nothing to do on error, this will be detected by the other side. */
     }
 }
 
+/**
+ * 父进程接收子进程数据
+ */
 /* Receive COW data from parent. */
 void receiveChildInfo(void) {
     if (server.child_info_pipe[0] == -1) return;
     ssize_t wlen = sizeof(server.child_info_data);
+    // 读数据
     if (read(server.child_info_pipe[0],&server.child_info_data,wlen) == wlen &&
         server.child_info_data.magic == CHILD_INFO_MAGIC)
     {
         if (server.child_info_data.process_type == CHILD_TYPE_RDB) {
+            // RDB
             server.stat_rdb_cow_bytes = server.child_info_data.cow_size;
         } else if (server.child_info_data.process_type == CHILD_TYPE_AOF) {
+            // AOF
             server.stat_aof_cow_bytes = server.child_info_data.cow_size;
         } else if (server.child_info_data.process_type == CHILD_TYPE_MODULE) {
+            // moudle
             server.stat_module_cow_bytes = server.child_info_data.cow_size;
         }
     }

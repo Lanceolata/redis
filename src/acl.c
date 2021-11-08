@@ -1058,6 +1058,12 @@ int ACLAuthenticateUser(client *c, robj *username, robj *password) {
     }
 }
 
+/**
+ * 根据命令名称获得命令ID
+ * 
+ * @param cmdname 命令名称
+ * @return id
+ */
 /* For ACL purposes, every user has a bitmap with the commands that such
  * user is allowed to execute. In order to populate the bitmap, every command
  * should have an assigned ID (that is used to index the bitmap). This function
@@ -1068,14 +1074,18 @@ unsigned long ACLGetCommandID(const char *cmdname) {
     static rax *map = NULL;
     static unsigned long nextid = 0;
 
+    // 命令名称小写
     sds lowername = sdsnew(cmdname);
     sdstolower(lowername);
+    // 创建基数树
     if (map == NULL) map = raxNew();
+    // 查找并返回ID
     void *id = raxFind(map,(unsigned char*)lowername,sdslen(lowername));
     if (id != raxNotFound) {
         sdsfree(lowername);
         return (unsigned long)id;
     }
+    // 查找不到则插入数据
     raxInsert(map,(unsigned char*)lowername,strlen(lowername),
               (void*)nextid,NULL);
     sdsfree(lowername);

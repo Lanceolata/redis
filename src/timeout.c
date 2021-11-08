@@ -31,16 +31,26 @@
 
 /* ========================== Clients timeouts ============================= */
 
+/**
+ * 检查client锁超时
+ * 
+ * @param c client
+ * @param now 当前时间
+ * @return 返回client超时，释放锁，返回1 其他 0
+ */
 /* Check if this blocked client timedout (does nothing if the client is
  * not blocked right now). If so send a reply, unblock it, and return 1.
  * Otherwise 0 is returned and no operation is performed. */
 int checkBlockedClientTimeout(client *c, mstime_t now) {
+    // 有锁 并 超时时间 < now
     if (c->flags & CLIENT_BLOCKED &&
         c->bpop.timeout != 0
         && c->bpop.timeout < now)
     {
+        // 返回timeout
         /* Handle blocking operation specific timeout. */
         replyToBlockedClientTimedOut(c);
+        // 释放锁
         unblockClient(c);
         return 1;
     } else {
@@ -48,6 +58,13 @@ int checkBlockedClientTimeout(client *c, mstime_t now) {
     }
 }
 
+/**
+ * 定时处理client
+ * 
+ * @param c client
+ * @param now 当前时间
+ * @return 
+ */
 /* Check for timeouts. Returns non-zero if the client was terminated.
  * The function gets the current time in milliseconds as argument since
  * it gets called multiple times in a loop, so calling gettimeofday() for
@@ -62,7 +79,8 @@ int clientsCronHandleTimeout(client *c, mstime_t now_ms) {
         !(c->flags & CLIENT_BLOCKED) && /* No timeout for BLPOP */
         !(c->flags & CLIENT_PUBSUB) &&  /* No timeout for Pub/Sub clients */
         (now - c->lastinteraction > server.maxidletime))
-    {
+    {   
+        // 超过最大空闲时间 关闭client
         serverLog(LL_VERBOSE,"Closing idle client");
         freeClient(c);
         return 1;
@@ -70,6 +88,7 @@ int clientsCronHandleTimeout(client *c, mstime_t now_ms) {
         /* Cluster: handle unblock & redirect of clients blocked
          * into keys no longer served by this server. */
         if (server.cluster_enabled) {
+            // TODO
             if (clusterRedirectBlockedClientIfNeeded(c))
                 unblockClient(c);
         }
@@ -92,14 +111,31 @@ int clientsCronHandleTimeout(client *c, mstime_t now_ms) {
 
 #define CLIENT_ST_KEYLEN 16    /* 8 bytes mstime + 8 bytes client ID. */
 
+/**
+ * 生成超时key
+ * 8 bytes mstime + 8 bytes client ID
+ * 
+ * @param buf buf
+ * @param timeout 超时时间
+ * @param c client
+ */
 /* Given client ID and timeout, write the resulting radix tree key in buf. */
 void encodeTimeoutKey(unsigned char *buf, uint64_t timeout, client *c) {
+    // 大端模式
     timeout = htonu64(timeout);
     memcpy(buf,&timeout,sizeof(timeout));
     memcpy(buf+8,&c,sizeof(c));
     if (sizeof(c) == 4) memset(buf+12,0,4); /* Zero padding for 32bit target. */
 }
 
+/**
+ * 解析超时key
+ * 8 bytes mstime + 8 bytes client ID
+ * 
+ * @param buf buf
+ * @param toptr key
+ * @param cptr client
+ */
 /* Given a key encoded with encodeTimeoutKey(), resolve the fields and write
  * the timeout into *toptr and the client pointer into *cptr. */
 void decodeTimeoutKey(unsigned char *buf, uint64_t *toptr, client **cptr) {
@@ -108,18 +144,31 @@ void decodeTimeoutKey(unsigned char *buf, uint64_t *toptr, client **cptr) {
     memcpy(cptr,buf+8,sizeof(*cptr));
 }
 
+/**
+ * 超时表添加client
+ * 
+ * @param c client
+ */
 /* Add the specified client id / timeout as a key in the radix tree we use
  * to handle blocked clients timeouts. The client is not added to the list
  * if its timeout is zero (block forever). */
 void addClientToTimeoutTable(client *c) {
+    // 没有超时时间
     if (c->bpop.timeout == 0) return;
     uint64_t timeout = c->bpop.timeout;
     unsigned char buf[CLIENT_ST_KEYLEN];
+    // 生成key
     encodeTimeoutKey(buf,timeout,c);
+    // 插入表
     if (raxTryInsert(server.clients_timeout_table,buf,sizeof(buf),NULL,NULL))
         c->flags |= CLIENT_IN_TO_TABLE;
 }
 
+/**
+ * 超时表移除client
+ * 
+ * @param c client
+ */
 /* Remove the client from the table when it is unblocked for reasons
  * different than timing out. */
 void removeClientFromTimeoutTable(client *c) {
@@ -131,15 +180,20 @@ void removeClientFromTimeoutTable(client *c) {
     raxRemove(server.clients_timeout_table,buf,sizeof(buf),NULL);
 }
 
+/**
+ * 处理超时表中的client
+ */
 /* This function is called in beforeSleep() in order to unblock clients
  * that are waiting in blocking operations with a timeout set. */
 void handleBlockedClientsTimeout(void) {
     if (raxSize(server.clients_timeout_table) == 0) return;
     uint64_t now = mstime();
+    // 迭代器
     raxIterator ri;
     raxStart(&ri,server.clients_timeout_table);
     raxSeek(&ri,"^",NULL,0);
 
+    // 遍历树
     while(raxNext(&ri)) {
         uint64_t timeout;
         client *c;
@@ -147,12 +201,22 @@ void handleBlockedClientsTimeout(void) {
         if (timeout >= now) break; /* All the timeouts are in the future. */
         c->flags &= ~CLIENT_IN_TO_TABLE;
         checkBlockedClientTimeout(c,now);
+        // 移出
         raxRemove(server.clients_timeout_table,ri.key,ri.key_len,NULL);
         raxSeek(&ri,"^",NULL,0);
     }
     raxStop(&ri);
 }
 
+/**
+ * 从object中读取timeout
+ * 
+ * @param c client
+ * @param object object
+ * @param timeout timeout
+ * @param unit unit
+ * @return error -1 ok 0
+ */
 /* Get a timeout value from an object and store it into 'timeout'.
  * The final timeout is always stored as milliseconds as a time where the
  * timeout will expire, however the parsing is performed according to

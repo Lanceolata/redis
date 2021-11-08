@@ -208,26 +208,44 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_CATEGORY_SCRIPTING (1ULL<<38)
 
 /* AOF states */
+// AOF关闭
 #define AOF_OFF 0             /* AOF is off */
+// AOF打开
 #define AOF_ON 1              /* AOF is on */
+// AOF等待rewrite
 #define AOF_WAIT_REWRITE 2    /* AOF waits rewrite to start appending */
 
 /* Client flags */
+// slave节点 客户端
 #define CLIENT_SLAVE (1<<0)   /* This client is a repliaca */
+// master节点 客户端
 #define CLIENT_MASTER (1<<1)  /* This client is a master */
+// slave monitor节点 客户端
 #define CLIENT_MONITOR (1<<2) /* This client is a slave monitor, see MONITOR */
+// 
 #define CLIENT_MULTI (1<<3)   /* This client is in a MULTI context */
+// 客户端 上锁
 #define CLIENT_BLOCKED (1<<4) /* The client is waiting in a blocking operation */
+// 
 #define CLIENT_DIRTY_CAS (1<<5) /* Watched keys modified. EXEC will fail. */
+// 写完所有reply后 关闭
 #define CLIENT_CLOSE_AFTER_REPLY (1<<6) /* Close after writing entire reply. */
+// 客户端 未上锁
 #define CLIENT_UNBLOCKED (1<<7) /* This client was unblocked and is stored in
                                   server.unblocked_clients */
+// LUA客户端
 #define CLIENT_LUA (1<<8) /* This is a non connected client used by Lua */
+// 
 #define CLIENT_ASKING (1<<9)     /* Client issued the ASKING command */
+// 客户端关闭
 #define CLIENT_CLOSE_ASAP (1<<10)/* Close this client ASAP */
+// Unix domain socket客户端
 #define CLIENT_UNIX_SOCKET (1<<11) /* Client connected via Unix domain socket */
+// 
 #define CLIENT_DIRTY_EXEC (1<<12)  /* EXEC will fail for errors while queueing */
+// master客户端仍回复
 #define CLIENT_MASTER_FORCE_REPLY (1<<13)  /* Queue replies even if is master */
+// 
 #define CLIENT_FORCE_AOF (1<<14)   /* Force AOF propagation of current cmd. */
 #define CLIENT_FORCE_REPL (1<<15)  /* Force replication of current cmd. */
 #define CLIENT_PRE_PSYNC (1<<16)   /* Instance don't understand PSYNC. */
@@ -236,10 +254,13 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_PREVENT_AOF_PROP (1<<19)  /* Don't propagate to AOF. */
 #define CLIENT_PREVENT_REPL_PROP (1<<20)  /* Don't propagate to slaves. */
 #define CLIENT_PREVENT_PROP (CLIENT_PREVENT_AOF_PROP|CLIENT_PREVENT_REPL_PROP)
+// 写挂起 添加入server.clients_pending_write队列
 #define CLIENT_PENDING_WRITE (1<<21) /* Client has output to send but a write
                                         handler is yet not installed. */
+// 客户端禁止回复
 #define CLIENT_REPLY_OFF (1<<22)   /* Don't send replies to client. */
 #define CLIENT_REPLY_SKIP_NEXT (1<<23)  /* Set CLIENT_REPLY_SKIP for next cmd */
+// 跳过当前回复
 #define CLIENT_REPLY_SKIP (1<<24)  /* Don't send just this reply. */
 #define CLIENT_LUA_DEBUG (1<<25)  /* Run EVAL in debug mode. */
 #define CLIENT_LUA_DEBUG_SYNC (1<<26)  /* EVAL debugging without fork() */
@@ -459,6 +480,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 
 /* We can print the stacktrace, so our assert is defined this way: */
 #define serverAssertWithInfo(_c,_o,_e) ((_e)?(void)0 : (_serverAssertWithInfo(_c,_o,#_e,__FILE__,__LINE__),_exit(1)))
+// 断言 失败退出
 #define serverAssert(_e) ((_e)?(void)0 : (_serverAssert(#_e,__FILE__,__LINE__),_exit(1)))
 #define serverPanic(...) _serverPanic(__FILE__,__LINE__,__VA_ARGS__),_exit(1)
 
@@ -605,8 +627,11 @@ typedef struct RedisModuleDigest {
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
  * internally represented in multiple ways. The 'encoding' field of the object
  * is set to one of this fields for this object. */
+// 编码-原始
 #define OBJ_ENCODING_RAW 0     /* Raw representation */
+// 编码-INT
 #define OBJ_ENCODING_INT 1     /* Encoded as integer */
+// 编码-hash表
 #define OBJ_ENCODING_HT 2      /* Encoded as hash table */
 #define OBJ_ENCODING_ZIPMAP 3  /* Encoded as zipmap */
 #define OBJ_ENCODING_LINKEDLIST 4 /* No longer used: old list encoding. */
@@ -844,6 +869,7 @@ typedef struct client {
     char slave_ip[NET_IP_STR_LEN]; /* Optionally given by REPLCONF ip-address */
     int slave_capa;         /* Slave capabilities: SLAVE_CAPA_* bitwise OR. */
     multiState mstate;      /* MULTI/EXEC state */
+    // 锁类型
     int btype;              /* Type of blocking op if CLIENT_BLOCKED. */
     blockingState bpop;     /* blocking state */
     long long woff;         /* Last write global replication offset. */
@@ -892,6 +918,7 @@ struct moduleLoadQueueEntry {
     robj **argv;
 };
 
+// 公共对象
 struct sharedObjectsStruct {
     robj *crlf, *ok, *err, *emptybulk, *czero, *cone, *pong, *space,
     *colon, *queued, *null[4], *nullarray[4], *emptymap[4], *emptyset[4],
@@ -1257,6 +1284,7 @@ struct redisServer {
                                       to child process. */
     sds aof_child_diff;             /* AOF diff accumulator child side. */
     /* RDB persistence */
+    // 最后一次save之后，有多少次变化
     long long dirty;                /* Changes to DB from the last save */
     long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
     pid_t rdb_child_pid;            /* PID of RDB saving child */
@@ -1287,6 +1315,7 @@ struct redisServer {
     int key_load_delay;             /* Delay in microseconds between keys while
                                      * loading aof or rdb. (for testings) */
     /* Pipe and data structures for child -> parent info sharing. */
+    // 进程间通信 文件描述符
     int child_info_pipe[2];         /* Pipe used to write the child_info_data. */
     struct {
         int process_type;           /* AOF or RDB child? */
@@ -1370,6 +1399,7 @@ struct redisServer {
     int maxmemory_samples;          /* Precision of random sampling */
     int lfu_log_factor;             /* LFU logarithmic counter factor. */
     int lfu_decay_time;             /* LFU counter decay factor. */
+    // 协议批量大长度
     long long proto_max_bulk_len;   /* Protocol bulk length maximum size. */
     int oom_score_adj_base;         /* Base oom_score_adj value, as observed on startup */
     int oom_score_adj_values[CONFIG_OOM_COUNT];   /* Linux oom_score_adj configuration */
@@ -1508,8 +1538,11 @@ typedef struct {
 
 typedef void redisCommandProc(client *c);
 typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+// redis命令
 struct redisCommand {
+    // 命令名称
     char *name;
+    // 
     redisCommandProc *proc;
     int arity;
     char *sflags;   /* Flags as string representation, one char per flag. */

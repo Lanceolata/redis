@@ -64,6 +64,7 @@
 
 int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb *db, robj *value, int where);
 
+// 锁
 /* This structure represents the blocked key information that we store
  * in the client structure. Each client blocked on keys, has a
  * client->bpop.keys hash table. The keys of the hash table are Redis
@@ -79,6 +80,12 @@ typedef struct bkinfo {
     streamID stream_id;     /* Stream ID if we blocked in a stream. */
 } bkinfo;
 
+/**
+ * 添加CLIENT_BLOCKED标志位
+ * 
+ * @param c client
+ * @param btype 锁操作类型
+ */
 /* Block a client for the specific operation type. Once the CLIENT_BLOCKED
  * flag is set client query buffer is not longer processed, but accumulated,
  * and will be processed when the client is unblocked. */
@@ -87,9 +94,14 @@ void blockClient(client *c, int btype) {
     c->btype = btype;
     server.blocked_clients++;
     server.blocked_clients_by_type[btype]++;
+    // 添加锁超时
     addClientToTimeoutTable(c);
 }
 
+/**
+ * 去除CLIENT_UNBLOCKED标志位
+ * 并从server.unblocked_clients中移除
+ */
 /* This function is called in the beforeSleep() function of the event loop
  * in order to process the pending input buffer of clients that were
  * unblocked after a blocking operation. */
@@ -102,8 +114,10 @@ void processUnblockedClients(void) {
         serverAssert(ln != NULL);
         c = ln->value;
         listDelNode(server.unblocked_clients,ln);
+        // 移除CLIENT_UNBLOCKED
         c->flags &= ~CLIENT_UNBLOCKED;
 
+        // 处理buffer中的数据
         /* Process remaining data in the input buffer, unless the client
          * is blocked again. Actually processInputBuffer() checks that the
          * client is not blocked before to proceed, but things may change and
@@ -116,6 +130,10 @@ void processUnblockedClients(void) {
     }
 }
 
+/**
+ * 增加CLIENT_UNBLOCKED标志位
+ * 并添加server.unblocked_clients
+ */
 /* This function will schedule the client for reprocessing at a safe time.
  *
  * This is useful when a client was blocked for some reason (blocking operation,
@@ -141,6 +159,9 @@ void queueClientForReprocessing(client *c) {
     }
 }
 
+/**
+ * 
+ */
 /* Unblock a client calling the right function depending on the kind
  * of operation the client is blocking for. */
 void unblockClient(client *c) {

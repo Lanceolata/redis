@@ -28,6 +28,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+/**
+ * 基数树
+ */
+
 #ifndef RAX_H
 #define RAX_H
 
@@ -94,6 +98,8 @@
  *
  */
 
+// 节点
+// 位域优化内存
 #define RAX_NODE_MAX_SIZE ((1<<29)-1)
 typedef struct raxNode {
     uint32_t iskey:1;     /* Does this node contain a key? */
@@ -130,22 +136,31 @@ typedef struct raxNode {
     unsigned char data[];
 } raxNode;
 
+// 基数树
 typedef struct rax {
     raxNode *head;
+    // 元素数
     uint64_t numele;
+    // 节点数
     uint64_t numnodes;
 } rax;
 
+// 基数树栈
+// 用于raxLowWalk，可以将父节点返回
 /* Stack data structure used by raxLowWalk() in order to, optionally, return
  * a list of parent nodes to the caller. The nodes do not have a "parent"
  * field for space concerns, so we use the auxiliary stack when needed. */
 #define RAX_STACK_STATIC_ITEMS 32
 typedef struct raxStack {
+    // 指向static_items
+    // 元素指针
     void **stack; /* Points to static_items or an heap allocated array. */
     size_t items, maxitems; /* Number of items contained and total space. */
+    // 初始默认数组
     /* Up to RAXSTACK_STACK_ITEMS items we avoid to allocate on the heap
      * and use this static array of pointers instead. */
     void *static_items[RAX_STACK_STATIC_ITEMS];
+    // 标识 分配内存失败 OOM
     int oom; /* True if pushing into this stack failed for OOM at some point. */
 } raxStack;
 
@@ -164,6 +179,7 @@ typedef struct raxStack {
  * This is currently only supported in forward iterations (raxNext) */
 typedef int (*raxNodeCallback)(raxNode **noderef);
 
+// 迭代器
 /* Radix tree iterator state is encapsulated into this data structure. */
 #define RAX_ITER_STATIC_LEN 128
 #define RAX_ITER_JUST_SEEKED (1<<0) /* Iterator was just seeked. Return current
@@ -185,6 +201,7 @@ typedef struct raxIterator {
     raxNodeCallback node_cb; /* Optional node callback. Normally set to NULL. */
 } raxIterator;
 
+// 标识未找到
 /* A special pointer returned for not found items. */
 extern void *raxNotFound;
 

@@ -135,12 +135,17 @@ int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT] = { 0, 200, 800 };
  *     On failure the config change will be reverted.
  */
 
+// bool类型配置数据
 /* Configuration values that require no special handling to set, get, load or
  * rewrite. */
 typedef struct boolConfigData {
+    // 配置指针
     int *config; /* The pointer to the server config this value is stored in */
+    // 默认值
     const int default_value; /* The default value of the config on rewrite */
+    // 配置是否有效函数
     int (*is_valid_fn)(int val, char **err); /* Optional function to check validity of new value (generic doc above) */
+    // 更新函数
     int (*update_fn)(int val, int prev, char **err); /* Optional function to apply new value at runtime (generic doc above) */
 } boolConfigData;
 
@@ -196,32 +201,51 @@ typedef struct numericConfigData {
     int (*update_fn)(long long val, long long prev, char **err); /* Optional function to apply new value at runtime (generic doc above) */
 } numericConfigData;
 
+// 配置数据
 typedef union typeData {
+    // bool类型
     boolConfigData yesno;
+    // string类型
     stringConfigData string;
+    // 枚举类型
     enumConfigData enumd;
+    // 数字类型
     numericConfigData numeric;
 } typeData;
 
+/**
+ * 类型接口
+ */
 typedef struct typeInterface {
+    // 初始化默认值
     /* Called on server start, to init the server with default value */
     void (*init)(typeData data);
+    // 加载配置
     /* Called on server start, should return 1 on success, 0 on error and should set err */
     int (*load)(typeData data, sds *argc, int argv, char **err);
+    // set
     /* Called on server startup and CONFIG SET, returns 1 on success, 0 on error
      * and can set a verbose err string, update is true when called from CONFIG SET */
     int (*set)(typeData data, sds value, int update, char **err);
+    // get
     /* Called on CONFIG GET, required to add output to the client */
     void (*get)(client *c, typeData data);
+    // rewrite
     /* Called on CONFIG REWRITE, required to rewrite the config state */
     void (*rewrite)(typeData data, const char *name, struct rewriteConfigState *state);
 } typeInterface;
 
+// 配置结构体
 typedef struct standardConfig {
+    // 配置名称
     const char *name; /* The user visible name of this config */
+    // 配置别名
     const char *alias; /* An alias that can also be used for this config */
+    // 是否可修改
     const int modifiable; /* Can this value be updated by CONFIG SET? */
+    // 接口方法
     typeInterface interface; /* The function pointers that define the type interface */
+    // 数据
     typeData data; /* The type specific data exposed used by the interface */
 } standardConfig;
 
@@ -271,6 +295,12 @@ int yesnotoi(char *s) {
     else return -1;
 }
 
+/**
+ * 设置server.saveparams和server.saveparamslen
+ * 
+ * @param seconds 时间(s)
+ * @param changes 变化
+ */
 void appendServerSaveParams(time_t seconds, int changes) {
     server.saveparams = zrealloc(server.saveparams,sizeof(struct saveparam)*(server.saveparamslen+1));
     server.saveparams[server.saveparamslen].seconds = seconds;
@@ -278,6 +308,9 @@ void appendServerSaveParams(time_t seconds, int changes) {
     server.saveparamslen++;
 }
 
+/**
+ * 重置server.saveparams
+ */
 void resetServerSaveParams(void) {
     zfree(server.saveparams);
     server.saveparams = NULL;
@@ -355,6 +388,9 @@ static int updateOOMScoreAdjValues(sds *args, char **err, int apply) {
     return C_OK;
 }
 
+/**
+ * 初始化配置
+ */
 void initConfigValues() {
     for (standardConfig *config = configs; config->name != NULL; config++) {
         config->interface.init(config->data);
@@ -1079,11 +1115,16 @@ dictType optionSetDictType = {
     NULL                        /* val destructor */
 };
 
+// 配置重写状态
 /* The config rewrite state. */
 struct rewriteConfigState {
+    // option 解析行 查分为数据 的第一个选项 -> List<linenumber> linenumber 行号 从1开始
     dict *option_to_line; /* Option -> list of config file lines map */
+    // 
     dict *rewritten;      /* Dictionary of already processed options */
+    // 当前配置行数
     int numlines;         /* Number of lines in current config */
+    // 行数据  option -> linenumber -> line
     sds *lines;           /* Current lines as an array of sds strings */
     int has_tail;         /* True if we already added directives that were
                              not present in the original config file. */
@@ -1091,12 +1132,25 @@ struct rewriteConfigState {
                              written. Currently only used for testing. */
 };
 
+/**
+ * 追加数据到state->lines
+ * 
+ * @param state 配置重写状态
+ * @param line 行数据
+ */
 /* Append the new line to the current configuration state. */
 void rewriteConfigAppendLine(struct rewriteConfigState *state, sds line) {
     state->lines = zrealloc(state->lines, sizeof(char*) * (state->numlines+1));
     state->lines[state->numlines++] = line;
 }
 
+/**
+ * 追加配置到state->option_to_line
+ * 
+ * @param state 配置重写状态
+ * @param option 配置项
+ * @param linenum 行号
+ */
 /* Populate the option -> list of line numbers map. */
 void rewriteConfigAddLineNumberToOption(struct rewriteConfigState *state, sds option, int linenum) {
     list *l = dictFetchValue(state->option_to_line,option);
@@ -1108,6 +1162,15 @@ void rewriteConfigAddLineNumberToOption(struct rewriteConfigState *state, sds op
     listAddNodeTail(l,(void*)(long)linenum);
 }
 
+/**
+ * 将配置项插入state->rewritten 标记已处理
+ * 
+ * 将指定的配置项添加到已处理配置项集合中。
+ * 这很有用，因为只有未使用的已处理选项行将在配置文件中被清除，而重写过程不理解的选项将保持不变。
+ * 
+ * @param state rewriteConfigState
+ * @param option 配置项
+ */
 /* Add the specified option to the set of processed options.
  * This is useful as only unused lines of processed options will be blanked
  * in the config file, while options the rewrite process does not understand
@@ -1118,6 +1181,12 @@ void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *
     if (dictAdd(state->rewritten,opt,NULL) != DICT_OK) sdsfree(opt);
 }
 
+/**
+ * 读取配置文件，生成rewriteConfigState
+ * 
+ * @param path 文件路径
+ * @return rewriteConfigState
+ */
 /* Read the old file, split it into lines to populate a newly created
  * config rewrite state, and return it to the caller.
  *
@@ -1138,41 +1207,53 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
     state->force_all = 0;
     if (fp == NULL) return state;
 
+    // 按行 读取配置文件
     /* Read the old file line by line, populate the state. */
     while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL) {
         int argc;
         sds *argv;
+        // trim
         sds line = sdstrim(sdsnew(buf),"\r\n\t ");
 
         linenum++; /* Zero based, so we init at -1 */
 
+        // 处理 注释 和 空白行
         /* Handle comments and empty lines. */
         if (line[0] == '#' || line[0] == '\0') {
+            // 如有 "# Generated by CONFIG REWRITE" 则修改 state->has_tail = 1
             if (!state->has_tail && !strcmp(line,REDIS_CONFIG_REWRITE_SIGNATURE))
                 state->has_tail = 1;
+            // 追加数据到state->lines
             rewriteConfigAppendLine(state,line);
             continue;
         }
 
+        // 解析参数
         /* Not a comment, split into arguments. */
         argv = sdssplitargs(line,&argc);
         if (argv == NULL) {
+            // 处理无法解析的行
             /* Apparently the line is unparsable for some reason, for
              * instance it may have unbalanced quotes. Load it as a
              * comment. */
             sds aux = sdsnew("# ??? ");
             aux = sdscatsds(aux,line);
             sdsfree(line);
+            // 追加数据到state->lines
             rewriteConfigAppendLine(state,aux);
             continue;
         }
 
+        // 指令转小写
         sdstolower(argv[0]); /* We only want lowercase config directives. */
 
+        // 追加数据到state->lines
         /* Now we populate the state according to the content of this line.
          * Append the line and populate the option -> line numbers map. */
         rewriteConfigAppendLine(state,line);
 
+        // 查找slave字符串
+        // 将slave替换为replica
         /* Translate options using the word "slave" to the corresponding name
          * "replica", before adding such option to the config name -> lines
          * mapping. */
@@ -1185,13 +1266,23 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
             sdsfree(argv[0]);
             argv[0] = alt;
         }
+        // 追加配置到state->option_to_line
         rewriteConfigAddLineNumberToOption(state,argv[0],linenum);
+        // 释放内存
         sdsfreesplitres(argv,argc);
     }
     fclose(fp);
     return state;
 }
 
+/**
+ * 写入新配置项
+ * 
+ * @param state rewriteConfigState
+ * @param option 配置项
+ * @param line 新值·
+ * @param force 是否强制覆盖
+ */
 /* Rewrite the specified configuration option with the new "line".
  * It progressively uses lines of the file that were already used for the same
  * configuration option in the old version of the file, removing that line from
@@ -1209,7 +1300,9 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
  * "line" is either used, or freed, so the caller does not need to free it
  * in any way. */
 void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *option, sds line, int force) {
+    // 选项
     sds o = sdsnew(option);
+    // linenumber list
     list *l = dictFetchValue(state->option_to_line,o);
 
     rewriteConfigMarkAsProcessed(state,option);
@@ -1272,6 +1365,14 @@ void rewriteConfigBytesOption(struct rewriteConfigState *state, const char *opti
     rewriteConfigRewriteLine(state,option,line,force);
 }
 
+/**
+ * bool类型配置rewrite
+ * 
+ * @param state rewriteConfigState
+ * @param option 配置项
+ * @param value 值
+ * @param defvalue 默认值
+ */
 /* Rewrite a yes/no option. */
 void rewriteConfigYesNoOption(struct rewriteConfigState *state, const char *option, int value, int defvalue) {
     int force = value != defvalue;
@@ -1708,11 +1809,17 @@ static char loadbuf[LOADBUF_SIZE];
 #define MODIFIABLE_CONFIG 1
 #define IMMUTABLE_CONFIG 0
 
+/**
+ * 通用配置
+ */
 #define embedCommonConfig(config_name, config_alias, is_modifiable) \
     .name = (config_name), \
     .alias = (config_alias), \
     .modifiable = (is_modifiable),
 
+/**
+ * interface配置
+ */
 #define embedConfigInterface(initfn, setfn, getfn, rewritefn) .interface = { \
     .init = (initfn), \
     .set = (setfn), \
@@ -1732,21 +1839,40 @@ static char loadbuf[LOADBUF_SIZE];
  * * A Macro defining how to create this type.
  */
 
+/**
+ * bool类型配置初始化为默认值
+ * 
+ * @param data 数据
+ */
 /* Bool Configs */
 static void boolConfigInit(typeData data) {
     *data.yesno.config = data.yesno.default_value;
 }
 
+/**
+ * bool类型配置set
+ * 
+ * @param data 数据
+ * @param value 值
+ * @param update 是否为更新调用
+ * @param err 错误信息
+ * @return 0 失败 1成功
+ */
 static int boolConfigSet(typeData data, sds value, int update, char **err) {
+    // yes 1 no 0 other -1
     int yn = yesnotoi(value);
     if (yn == -1) {
         *err = "argument must be 'yes' or 'no'";
         return 0;
     }
+    // 检验是否合法
     if (data.yesno.is_valid_fn && !data.yesno.is_valid_fn(yn, err))
         return 0;
+    // 原值
     int prev = *(data.yesno.config);
+    // 修改值
     *(data.yesno.config) = yn;
+    // 为更新调用
     if (update && data.yesno.update_fn && !data.yesno.update_fn(yn, prev, err)) {
         *(data.yesno.config) = prev;
         return 0;
@@ -1754,14 +1880,39 @@ static int boolConfigSet(typeData data, sds value, int update, char **err) {
     return 1;
 }
 
+/**
+ * bool类型配置get
+ * 配置返回给客户端
+ * 
+ * @param c client
+ * @param data bool类型配置数据
+ */
 static void boolConfigGet(client *c, typeData data) {
     addReplyBulkCString(c, *data.yesno.config ? "yes" : "no");
 }
 
+/**
+ * bool类型配置rewrite
+ * 
+ * @param data bool类型配置数据
+ * @param name 配置名称
+ * @param state 状态
+ */
 static void boolConfigRewrite(typeData data, const char *name, struct rewriteConfigState *state) {
     rewriteConfigYesNoOption(state, name,*(data.yesno.config), data.yesno.default_value);
 }
 
+/**
+ * 创建bool类型配置
+ * 
+ * @param name 名称
+ * @param alias 别名
+ * @param modifiable 是否可修改
+ * @param config_addr 配置存储地址
+ * @param default 默认值
+ * @param is_valid 判断是否有效函数
+ * @param update 更新函数
+ */
 #define createBoolConfig(name, alias, modifiable, config_addr, default, is_valid, update) { \
     embedCommonConfig(name, alias, modifiable) \
     embedConfigInterface(boolConfigInit, boolConfigSet, boolConfigGet, boolConfigRewrite) \
@@ -2264,6 +2415,8 @@ static int updateTlsCfgInt(long long val, long long prev, char **err) {
 }
 #endif  /* USE_OPENSSL */
 
+// 标准配置
+// 使用 宏 + {.变量 = 值} 构造
 standardConfig configs[] = {
     /* Bool configs */
     createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, 1, NULL, NULL),

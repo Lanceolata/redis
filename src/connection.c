@@ -51,6 +51,11 @@
 
 ConnectionType CT_Socket;
 
+/**
+ * 创建socket连接
+ * 
+ * @return 连接
+ */
 /* When a connection is created we must know its type already, but the
  * underlying socket may or may not exist:
  *
@@ -76,12 +81,20 @@ ConnectionType CT_Socket;
 
 connection *connCreateSocket() {
     connection *conn = zcalloc(sizeof(connection));
+    // socket类型
     conn->type = &CT_Socket;
     conn->fd = -1;
 
     return conn;
 }
 
+/**
+ * 创建socket连接
+ * 设置fd和CONN_STATE_ACCEPTING状态
+ * 
+ * @param fd 文件描述符
+ * @return 连接
+ */
 /* Create a new socket-type connection that is already associated with
  * an accepted connection.
  *
@@ -99,8 +112,16 @@ connection *connCreateAcceptedSocket(int fd) {
     return conn;
 }
 
+/**
+ * 连接socket
+ * 
+ * @param conn 连接
+ * @param addr 地址
+ * @return 0 成功 -1 失败
+ */
 static int connSocketConnect(connection *conn, const char *addr, int port, const char *src_addr,
         ConnectionCallbackFunc connect_handler) {
+    // tcp连接
     int fd = anetTcpNonBlockBestEffortBindConnect(NULL,addr,port,src_addr);
     if (fd == -1) {
         conn->state = CONN_STATE_ERROR;
@@ -108,9 +129,11 @@ static int connSocketConnect(connection *conn, const char *addr, int port, const
         return C_ERR;
     }
 
+    // 设置文件描述符和状态
     conn->fd = fd;
     conn->state = CONN_STATE_CONNECTING;
 
+    // 可写
     conn->conn_handler = connect_handler;
     aeCreateFileEvent(server.el, conn->fd, AE_WRITABLE,
             conn->type->ae_handler, conn);
@@ -144,15 +167,22 @@ void *connGetPrivateData(connection *conn) {
  * move here as we implement additional connection types.
  */
 
+/**
+ * 关闭socket连接
+ * 
+ * @param conn 连接
+ */
 /* Close the connection and free resources. */
 static void connSocketClose(connection *conn) {
     if (conn->fd != -1) {
+        // 移除事件驱动
         aeDeleteFileEvent(server.el,conn->fd,AE_READABLE);
         aeDeleteFileEvent(server.el,conn->fd,AE_WRITABLE);
         close(conn->fd);
         conn->fd = -1;
     }
 
+    // 有引用 则设置flags
     /* If called from within a handler, schedule the close but
      * keep the connection until the handler returns.
      */
@@ -161,11 +191,22 @@ static void connSocketClose(connection *conn) {
         return;
     }
 
+    // 释放conn
     zfree(conn);
 }
 
+/**
+ * 写数据
+ * 
+ * @param conn 连接
+ * @param data 数据
+ * @param data_len 数据长度
+ * @return 写入数据长度 -1 失败
+ */
 static int connSocketWrite(connection *conn, const void *data, size_t data_len) {
+    // 写数据
     int ret = write(conn->fd, data, data_len);
+    // 写入失败
     if (ret < 0 && errno != EAGAIN) {
         conn->last_errno = errno;
 
@@ -196,6 +237,9 @@ static int connSocketRead(connection *conn, void *buf, size_t buf_len) {
     return ret;
 }
 
+/**
+ * accept
+ */
 static int connSocketAccept(connection *conn, ConnectionCallbackFunc accept_handler) {
     int ret = C_OK;
 
@@ -261,6 +305,7 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
     if (conn->state == CONN_STATE_CONNECTING &&
             (mask & AE_WRITABLE) && conn->conn_handler) {
 
+        // 获得socket error
         int conn_error = connGetSocketError(conn);
         if (conn_error) {
             conn->last_errno = conn_error;
@@ -307,6 +352,7 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
 }
 
 static int connSocketBlockingConnect(connection *conn, const char *addr, int port, long long timeout) {
+    // 非阻塞
     int fd = anetTcpNonBlockConnect(NULL,addr,port);
     if (fd == -1) {
         conn->state = CONN_STATE_ERROR;
@@ -314,6 +360,7 @@ static int connSocketBlockingConnect(connection *conn, const char *addr, int por
         return C_ERR;
     }
 
+    // 等待写就绪
     if ((aeWait(fd, AE_WRITABLE, timeout) & AE_WRITABLE) == 0) {
         conn->state = CONN_STATE_ERROR;
         conn->last_errno = ETIMEDOUT;
